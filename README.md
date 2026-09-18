@@ -2,6 +2,18 @@
 
 Conversational trading workspace for PERPL on Monad. Initial reviewable product slice.
 
+## AI conversation setup
+
+The new `/api/mot/chat` endpoint supports bounded conversation history, structured AI responses, saved risk preferences, and verified fresh PERPL quotes. It has no execution tools. Prices and simple previews work without an AI key; general conversation stays explicitly unavailable until activation.
+
+Activation requires a dedicated private Neon/Postgres database, an AI Gateway key, and a random server-only session secret of at least 32 characters. Configure the names in `.env.example` through Vercel environment settings, run `db/mot-ai.sql` on the dedicated database, then set `MOT_AI_ENABLED=true` and redeploy. Never commit credentials or paste them into chat. Do not reuse a production database without reviewing this migration. No database is provisioned or migration applied automatically.
+
+Users must explicitly enable AI consent. Requests send their message, up to 10 recent conversation turns (10,000 characters total), non-secret preferences, a wallet-connected boolean, and fresh public quotes to the provider. Wallet addresses and PERPL API credentials are not sent. Common secret formats are rejected, but detection is not exhaustive: never enter any secret in chat. AI replies, prompt context, model, usage, estimated cost when pricing is configured, and timestamps are stored privately. Saved `/chat/[id]` responses require the original HTTP-only browser cookie; they are not public sharing links. There is no account-level history, export, deletion interface, or automatic retention policy yet. Cookie expiry is 30 days; database records do not expire automatically. Review privacy/retention before enabling public AI access.
+
+Database-backed limits default to 50 model attempts globally per rolling 24 hours and five per browser/IP per minute. These are conservative development safeguards, not full abuse protection. Failed reserved attempts count toward the quota. Configure provider spending limits separately. Optional token pricing must be in USD per token; missing pricing is recorded as unknown, not free. AI configuration status does not prove a successful provider/database connection. Test live conversation after activation before claiming readiness.
+
+`pnpm test` covers preview limits, credential detection, role/context validation, price freshness and existing testnet authentication. No paid AI call or trade is made by the test suite.
+
 ## Available
 - Responsive conversation workspace; text and browser-supported speech transcription.
 - Existing browser-wallet connection without spending permissions.
