@@ -1,4 +1,4 @@
-// Browser-only, session-only PERPL testnet authentication. No order sender lives here.
+// Browser-only, session-only PERPL testnet authentication and user-confirmed order forwarding.
 export const PERPL_TESTNET_CHAIN = 10143;
 export const PERPL_TESTNET_SOCKET = 'wss://testnet.perpl.xyz/ws/v1/trading';
 
@@ -9,6 +9,7 @@ export type PerplAccount = {
   frozen: boolean | null;
   balance: string | null;
   lockedBalance: string | null;
+  lastForwardedRequestId: number;
 };
 export type SessionState = {
   status: 'connecting' | 'authenticated' | 'closed' | 'error';
@@ -24,6 +25,7 @@ type SessionOptions = {
   onState: (state: SessionState) => void;
   socketFactory?: (url: string) => SocketLike;
 };
+export type OrderAdmission = { correlationId: number; accepted: boolean; code: number; error: string };
 
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -61,6 +63,7 @@ export function decodeAccount(value: unknown): PerplAccount {
     forwarding: typeof value.fw === 'boolean' ? value.fw : null,
     frozen: typeof value.fr === 'boolean' ? value.fr : null,
     balance: amount(value.b), lockedBalance: amount(value.lb),
+    lastForwardedRequestId: typeof value.lfr === 'number' && Number.isSafeInteger(value.lfr) && value.lfr >= 0 ? value.lfr : 0,
   };
 }
 
@@ -84,6 +87,9 @@ export class PerplReadOnlySession {
   private freshnessTimer: ReturnType<typeof setInterval> | null = null;
   private lastMessage = Date.now();
   private ended = false;
+  private pending = new Map<number, { resolve: (value: OrderAdmission) => void; timer: ReturnType<typeof setTimeout> }>();
+  private requestCounters = new Map<number, number>();
+  private correlation = Math.floor(Math.random() * 1_000_000_000) + 1;
 
   constructor(options: SessionOptions) { this.options = options; }
 
@@ -124,7 +130,7 @@ export class PerplReadOnlySession {
         if (this.authenticationTimer) clearTimeout(this.authenticationTimer);
         this.authenticationTimer = null;
         // Keep the CryptoKey/token only in this in-memory session; no storage or server upload.
-        this.emit('authenticated', 'API authentication verified. Trade scope is not verified; order execution remains disabled.');
+        this.emit('authenticated', 'API authentication verified. A trade-scoped key can submit testnet orders after your explicit confirmation.');
         if (!this.keepAlive) this.keepAlive = setInterval(() => {
           if (!this.ended && this.socket?.readyState === 1) {
             try { this.socket.send(JSON.stringify({ mt: 1, t: Date.now() })); } catch { this.fail('PERPL connection interrupted.'); }
@@ -138,13 +144,50 @@ export class PerplReadOnlySession {
         const index = this.accounts.findIndex(item => item.id === account.id && item.instance === account.instance);
         if (index < 0) throw new Error('Unexpected account');
         this.accounts = this.accounts.map((item, i) => i === index ? account : item);
-        this.emit('authenticated', 'Account status updated. Order execution remains disabled.');
+        this.emit('authenticated', 'Account status updated.');
       } else if (frame.mt === 100 && this.authenticated) {
         if (typeof frame.sn !== 'number' || frame.sn !== this.lastSequence! + 1) throw new Error('Sequence gap');
         this.lastSequence = frame.sn;
+      } else if (frame.mt === 3 && frame.sid === 100) {
+        const cid = frame.cid;
+        const pending = typeof cid === 'number' ? this.pending.get(cid) : undefined;
+        if (typeof cid === 'number' && pending && object(frame.status) && typeof frame.status.code === 'number' && typeof frame.status.error === 'string') {
+          clearTimeout(pending.timer); this.pending.delete(cid);
+          pending.resolve({ correlationId: cid, accepted: frame.status.code === 0, code: frame.status.code, error: frame.status.error });
+        }
       }
-      // Orders/positions/other frame types are deliberately not acted on in this stage.
+      // Position/order updates are displayed in a later stage; admission never implies a fill.
     } catch { this.fail('Wallet verification failed or account updates were incomplete. Disconnecting safely; no orders were sent.'); }
+  }
+
+  getAccount(accountId: number) { return this.accounts.find(account => account.id === accountId) ?? null; }
+  nextRequestId(accountId: number, count = 1) {
+    const account = this.getAccount(accountId);
+    if (!account || !Number.isSafeInteger(count) || count < 1) throw new Error('Choose a verified PERPL account.');
+    return Math.max(account.lastForwardedRequestId, this.requestCounters.get(accountId) ?? 0) + 1;
+  }
+  nextCorrelationId(count = 1) {
+    if (!Number.isSafeInteger(count) || count < 1 || this.correlation + count >= Number.MAX_SAFE_INTEGER) throw new Error('Reconnect the PERPL session.');
+    return this.correlation + 1;
+  }
+  async submitOrders(orders: Frame[]): Promise<OrderAdmission[]> {
+    if (this.ended || !this.authenticated || this.socket?.readyState !== 1) throw new Error('Reconnect the verified PERPL session.');
+    if (!orders.length || orders.length > 3) throw new Error('An opening may include at most two protection orders.');
+    const admissions = orders.map(order => new Promise<OrderAdmission>((resolve, reject) => {
+      const cid = order.sn;
+      if (!positiveId(cid) || this.pending.has(cid)) { reject(new Error('Invalid order correlation ID.')); return; }
+      const timer = setTimeout(() => { this.pending.delete(cid); reject(new Error('PERPL did not acknowledge the order in time. Do not retry automatically.')); }, 15000);
+      this.pending.set(cid, { resolve, timer });
+    }));
+    try {
+      for (const order of orders) this.socket.send(JSON.stringify(order));
+      this.correlation = Math.max(this.correlation, ...orders.map(order => Number(order.sn)));
+      for (const order of orders) if (positiveId(order.acc) && positiveId(order.rq)) this.requestCounters.set(order.acc, Math.max(this.requestCounters.get(order.acc) ?? 0, order.rq));
+      return await Promise.all(admissions);
+    } catch (error) {
+      for (const order of orders) { const item = this.pending.get(Number(order.sn)); if (item) { clearTimeout(item.timer); this.pending.delete(Number(order.sn)); } }
+      throw error;
+    }
   }
 
   private emit(status: SessionState['status'], message: string) { this.options?.onState({ status, accounts: status === 'authenticated' ? [...this.accounts] : [], message }); }
@@ -157,6 +200,9 @@ export class PerplReadOnlySession {
     if (this.authenticationTimer) clearTimeout(this.authenticationTimer);
     if (this.keepAlive) clearInterval(this.keepAlive);
     if (this.freshnessTimer) clearInterval(this.freshnessTimer);
+    for (const item of this.pending.values()) clearTimeout(item.timer);
+    this.pending.clear();
+    this.requestCounters.clear();
     if (this.socket) {
       this.socket.onopen = null; this.socket.onmessage = null; this.socket.onclose = null; this.socket.onerror = null;
       this.socket.close(); this.socket = null;
