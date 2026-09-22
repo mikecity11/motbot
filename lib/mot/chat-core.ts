@@ -34,13 +34,25 @@ export function renderTradePreview(trade:NonNullable<AiResponse['trade']>,settin
  if(trade.marginUSD!>settings.maxMargin||trade.marginUSD!>settings.totalMargin||trade.leverage!>settings.maxLeverage)return 'That instruction exceeds your saved margin or leverage limit. No trade has been submitted.';
  return `Instruction preview: ${trade.market} ${trade.side} · $${trade.marginUSD} margin · ${trade.leverage}x leverage · approximately $${(trade.marginUSD!*trade.leverage!).toFixed(2)} exposure before fees.\n${settings.slOn?`Default stop-loss preference: ${settings.sl}% of opening margin.`:'Default stop-loss preference is off; no automatic fallback protection.'}\n${settings.tpOn?`Default take-profit preference: ${settings.tp}% of opening margin.`:'Default take-profit preference is off.'}\nThese are preferences, not active orders or protection. Existing exposure and available collateral have not been checked. No trade has been submitted.`;
 }
+export function executableTradeCandidate(trade: AiResponse['trade'], settings: ChatInput['settings']) {
+ if(!trade?.market||!trade.side||!trade.marginUSD||!trade.leverage)return null;
+ if(trade.marginUSD>settings.maxMargin||trade.marginUSD>settings.totalMargin||trade.leverage>settings.maxLeverage)return null;
+ return {market:trade.market,side:trade.side,marginUSD:trade.marginUSD,leverage:trade.leverage};
+}
+export function parseExplicitOpening(message:string):NonNullable<AiResponse['trade']>|null{
+ const text=message.toLowerCase();
+ const market=/\b(btc|bitcoin)\b/.test(text)?'BTC':/\b(eth|ethereum)\b/.test(text)?'ETH':/\b(sol|solana)\b/.test(text)?'SOL':/\b(mon|monad)\b/.test(text)?'MON':null;
+ if(!market||!/^(?:hey (?:mot|motbot)[, ]+)?(?:open (?:a )?)?(?:short|long) (?:btc|bitcoin|eth|ethereum|sol|solana|mon|monad) (?:with|using) \$\s*\d+(?:\.\d+)? (?:at|with) \d+(?:\.\d+)?\s*x[.!]?$/i.test(message))return null;
+ return {market,side:/\bshort\b/.test(text)?'short':'long',marginUSD:Number(text.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1]),leverage:Number(text.match(/\b(\d+(?:\.\d+)?)\s*x\b/)?.[1])};
+}
 export async function builtInReply(input:ChatInput,getMarkets:()=>Promise<MarketQuote[]>):Promise<string|null>{
  const text=input.message.toLowerCase();const symbol=/\b(btc|bitcoin)\b/.test(text)?'BTC':/\b(eth|ethereum)\b/.test(text)?'ETH':/\b(sol|solana)\b/.test(text)?'SOL':/\b(mon|monad)\b/.test(text)?'MON':null;
  if(/\b(alert|notify|remind)\b/.test(text))return 'Price alerts and email delivery are not active yet. No alert has been scheduled. Choose delivery preferences in Trading settings.';
  if(/\b(close|cancel)\b/.test(text)&&/\b(trade|position|order|btc|bitcoin|eth|ethereum|sol|mon)\b/.test(text))return 'No close or cancel order was submitted. Position management and order execution are not enabled yet.';
- if(symbol&&/^(?:hey (?:mot|motbot)[, ]+)?(?:open (?:a )?)?(?:short|long) (?:btc|bitcoin|eth|ethereum|sol|solana|mon|monad) (?:with|using) \$\s*\d+(?:\.\d+)? (?:at|with) \d+(?:\.\d+)?\s*x[.!]?$/i.test(input.message)){
-  const margin=Number(text.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1]);const leverage=Number(text.match(/\b(\d+(?:\.\d+)?)\s*x\b/)?.[1]);if(!(margin>0)||!(leverage>0))return 'Margin and leverage must be greater than zero. No trade has been submitted.';
-  return renderTradePreview({market:symbol as 'BTC'|'ETH'|'SOL'|'MON',side:/\bshort\b/.test(text)?'short':'long',marginUSD:margin,leverage},input.settings);
+ const explicit=parseExplicitOpening(input.message);
+ if(explicit){
+  if(!(explicit.marginUSD!>0)||!(explicit.leverage!>0))return 'Margin and leverage must be greater than zero. No trade has been submitted.';
+  return renderTradePreview(explicit,input.settings);
  }
  if(/^(?:hey (?:mot|motbot)[, ]+)?(?:what(?:'s| is) (?:the )?(?:current )?(?:price|worth)(?: of| for)?|(?:btc|bitcoin|eth|ethereum|sol|solana|mon|monad) price)/i.test(input.message)&&!/\b(why|analyse|analyze|if|short|long|buy|sell|tomorrow|predict)\b/.test(text)){
   if(!symbol)return 'Which market would you like to check? For example, Bitcoin or Ethereum.';
