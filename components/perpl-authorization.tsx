@@ -1,6 +1,9 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { importApiSigningKey, PerplReadOnlySession, type SessionState } from '@/lib/mot/perpl-session';
+import { decodeTradingContext, planMarketOrders, type ProtectionPreferences, type TradeCandidate } from '@/lib/mot/perpl-orders';
+
+type SubmitDetail = { id: string; trade: TradeCandidate; preferences: ProtectionPreferences };
 
 export function PerplAuthorization({ wallet, chain }: { wallet: string; chain: string }) {
   const tokenInput = useRef<HTMLInputElement>(null);
@@ -10,6 +13,36 @@ export function PerplAuthorization({ wallet, chain }: { wallet: string; chain: s
   const [consent, setConsent] = useState(false);
   const [state, setState] = useState<SessionState | null>(null);
   const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    async function submit(event: Event) {
+      const detail = (event as CustomEvent<SubmitDetail>).detail;
+      const reply = (ok: boolean, message: string) => window.dispatchEvent(new CustomEvent('mot:testnet-order-result', { detail: { id: detail?.id, ok, message } }));
+      try {
+        if (!detail || typeof detail.id !== 'string' || !detail.trade || !detail.preferences) throw new Error('The reviewed instruction is invalid.');
+        if (Number(chain) !== 10143 || !session.current || state?.status !== 'authenticated') throw new Error('Connect a verified PERPL testnet API session first.');
+        const account = state.accounts.find(item => item.forwarding === true && item.frozen === false);
+        if (!account) throw new Error('A verified, unfrozen PERPL account with order forwarding enabled is required.');
+        if (account.balance === null || account.lockedBalance === null) throw new Error('PERPL did not provide a verified collateral balance.');
+        const required = BigInt(Math.ceil(detail.trade.marginUSD * 1_000_000));
+        if (BigInt(account.balance) - BigInt(account.lockedBalance) < required) throw new Error('Available testnet collateral is below the requested opening margin.');
+        const response = await fetch('https://testnet.perpl.xyz/api/v1/pub/context', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Could not load PERPL’s live trading limits.');
+        const context = decodeTradingContext(await response.json());
+        const market = context.markets.find(item => item.symbol.toUpperCase() === detail.trade.market.toUpperCase());
+        if (!market) throw new Error(`${detail.trade.market} is not available on PERPL testnet.`);
+        const firstRq = session.current.nextRequestId(account.id);
+        const firstCid = session.current.nextCorrelationId();
+        const orders = planMarketOrders({ trade: detail.trade, preferences: detail.preferences, market, accountId: account.id, firstRequestId: firstRq, firstCorrelationId: firstCid, head: context.head });
+        const admissions = await session.current.submitOrders(orders);
+        const rejected = admissions.find(item => !item.accepted);
+        if (rejected) throw new Error(rejected.code === 403 ? 'PERPL rejected this API key because it does not have trade scope.' : `PERPL rejected part of the instruction: ${rejected.error || `code ${rejected.code}`}. Check the account on PERPL before trying again.`);
+        reply(true, `${orders.length} testnet order${orders.length === 1 ? '' : 's'} accepted for forwarding by PERPL. Acceptance is not proof of a fill; verify the resulting position and protection orders on PERPL.`);
+      } catch (error) { reply(false, `${error instanceof Error ? error.message : 'The testnet instruction could not be submitted.'} Do not retry this instruction automatically; check PERPL first, then send a fresh command.`); }
+    }
+    window.addEventListener('mot:submit-testnet-order', submit);
+    return () => window.removeEventListener('mot:submit-testnet-order', submit);
+  }, [chain, state]);
 
   useEffect(() => {
     function clear() {
@@ -52,14 +85,14 @@ export function PerplAuthorization({ wallet, chain }: { wallet: string; chain: s
   const active = state?.status === 'authenticated';
   return <div className="perpl-auth">
     <h3>Connect a testnet API key</h3>
-    <p>Create a dedicated key at <a href="https://testnet.perpl.xyz/apikeys" target="_blank" rel="noreferrer">PERPL testnet ↗</a> for the same wallet. A read-only key is sufficient for this setup check.</p>
+    <p>Create a dedicated Read + Trade key at <a href="https://testnet.perpl.xyz/apikeys" target="_blank" rel="noreferrer">PERPL testnet ↗</a> for the same wallet. A read-only key can verify the session but cannot submit an order.</p>
     <p>Only enter PERPL’s API token and API secret below—not your wallet private key or seed phrase. Never send these credentials in chat.</p>
     {!active && <form onSubmit={connect} autoComplete="off">
       <label htmlFor="perpl-api-token">PERPL testnet API token</label>
       <input ref={tokenInput} id="perpl-api-token" type="password" autoComplete="off" spellCheck={false} maxLength={4096} required disabled={working}/>
       <label htmlFor="perpl-api-secret">PERPL API secret (32-byte hex)</label>
       <input ref={secretInput} id="perpl-api-secret" type="password" autoComplete="off" spellCheck={false} maxLength={66} required disabled={working}/>
-      <label className="perpl-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={working}/>I understand this key belongs to my testnet wallet. MOT will use it only to verify this session, not to submit orders.</label>
+      <label className="perpl-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={working}/>I understand this is a testnet key. If it has trade scope, MOT may submit only the testnet instruction I explicitly review and confirm.</label>
       <button className="wallet-button" disabled={!consent || working || Number(chain) !== 10143}>{working ? 'Verifying session…' : 'Verify API session'}</button>
       {Number(chain) !== 10143 && <p>Select Monad testnet in your wallet first.</p>}
     </form>}
