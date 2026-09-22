@@ -50,8 +50,8 @@ export function PerplSetup({ wallet, connect }: { wallet: string; connect: () =>
       <p><a href="https://testnet.perpl.xyz" target="_blank" rel="noreferrer">Open PERPL testnet to create or fund an account ↗</a></p>
       <p><a href="https://testnet.perpl.xyz/apikeys" target="_blank" rel="noreferrer">PERPL testnet API keys ↗</a></p>
       <PerplAuthorization wallet={wallet} chain={chain}/>
-      <p>Direct key enrollment awaits origin approval. Order execution remains disabled, even when API authentication and forwarding are verified.</p>
+      <p>After API authentication and forwarding are verified, a complete chat instruction can be reviewed and submitted on testnet.</p>
     </>}
-    <p>Read-only checks. No deposits, approvals, or orders are submitted here.</p>
+    <p>MOT never deposits, withdraws, or changes wallet approvals. Testnet orders require your explicit confirmation.</p>
   </section>;
 }
