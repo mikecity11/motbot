@@ -68,7 +68,7 @@ test('sign-in alone is not authentication; the first frame is testnet sign-in', 
   socket.receive(snapshot);
   assert.equal(states.at(-1).status, 'authenticated');
   assert.equal(states.at(-1).accounts[0].forwarding, true);
-  assert.match(states.at(-1).message, /scope is not verified/);
+  assert.match(states.at(-1).message, /explicit confirmation/);
 });
 
 test('reflects revoked forwarding and frozen status from account updates', async t => {
@@ -77,6 +77,19 @@ test('reflects revoked forwarding and frozen status from account updates', async
   socket.receive({ mt: 21, ...account, fw: false, fr: true });
   assert.equal(states.at(-1).accounts[0].forwarding, false);
   assert.equal(states.at(-1).accounts[0].frozen, true);
+});
+
+test('submits only explicitly supplied frames and correlates command admission', async t => {
+  const { socket, session } = await fixture(t);
+  socket.receive({ ...snapshot, as: [{ ...account, lfr: 8 }] });
+  assert.equal(session.nextRequestId(1), 9);
+  const cid = session.nextCorrelationId();
+  const order = { mt: 22, sn: cid, rq: 9, mkt: 16, acc: 1, t: 1, p: 0, s: 1, ms: 50, fl: 4, lv: 100, lb: 20 };
+  const pending = session.submitOrders([order]);
+  assert.deepEqual(socket.frames.at(-1), order);
+  socket.receive({ mt: 3, sid: 100, cid, status: { code: 0, error: '' } });
+  assert.deepEqual(await pending, [{ correlationId: cid, accepted: true, code: 0, error: '' }]);
+  assert.equal(session.nextRequestId(1), 10);
 });
 
 test('a mismatched wallet closes the session and clears verified accounts', async t => {
@@ -112,7 +125,7 @@ test('disconnect drops handlers and cannot restart or send orders', async t => {
   assert.equal(states.at(-1).status, 'closed'); assert.equal(socket.closed, true);
   assert.equal(socket.onopen, null); assert.equal(socket.onmessage, null);
   assert.deepEqual(socket.frames.map(frame => frame.mt), [29]);
-  assert.equal('sendOrder' in session, false);
+  await assert.rejects(session.submitOrders([{ mt: 22, sn: 1 }]), /Reconnect/);
 });
 
 test('PERPL authentication rejection leaves no authenticated state', async t => {
