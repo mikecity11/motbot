@@ -23,7 +23,7 @@ export async function POST(request:Request){
   try{
    const markets=await getMarkets().catch(()=>[]);const result=await generateMotReply(input,markets,request.signal);const reply=renderAiReply(result.output,input);
    return response(reply,'ai',200,{model:result.model,tradeCandidate:result.output.intent==='trade_preview'?executableTradeCandidate(result.output.trade,input.settings):null});
-  }catch{return response('MOT’s AI service is temporarily unavailable. Try again shortly. No trade was submitted.','unavailable',503);}
+  }catch(error){console.error('MOT AI generation failed',error);return response('MOT’s AI service is temporarily unavailable. Try again shortly. No trade was submitted.','unavailable',503);}
  }
  const existing=(await cookies()).get('mot.ai.session')?.value;const token=existing&&/^[A-Za-z0-9_-]{43}$/.test(existing)?existing:randomBytes(32).toString('base64url');const id=randomUUID();let reserved=false;
  try{
