@@ -37,8 +37,10 @@ export function PerplAuthorization({ wallet, chain }: { wallet: string; chain: s
         const admissions = await session.current.submitOrders(orders);
         const rejected = admissions.find(item => !item.accepted);
         if (rejected) throw new Error(rejected.code === 403 ? 'PERPL rejected this API key because it does not have trade scope.' : `PERPL rejected part of the instruction: ${rejected.error || `code ${rejected.code}`}. Check the account on PERPL before trying again.`);
-        reply(true, `${orders.length} testnet order${orders.length === 1 ? '' : 's'} accepted for forwarding by PERPL. Acceptance is not proof of a fill; verify the resulting position and protection orders on PERPL.`);
-      } catch (error) { reply(false, `${error instanceof Error ? error.message : 'The testnet instruction could not be submitted.'} Do not retry this instruction automatically; check PERPL first, then send a fresh command.`); }
+        const filled = admissions.some(item => item.evidence === 'position');
+        const forwarded = admissions.some(item => item.evidence === 'forwarded' || item.evidence === 'order');
+        reply(true, filled ? 'PERPL confirmed the resulting position. The testnet trade is open.' : forwarded ? `${orders.length} testnet order${orders.length === 1 ? '' : 's'} reached PERPL. Final fill confirmation may arrive separately; check the live position panel before sending another instruction.` : `${orders.length} testnet order${orders.length === 1 ? '' : 's'} accepted for forwarding by PERPL. Acceptance is not proof of a fill; wait for the live position update.`);
+      } catch (error) { reply(false, `${error instanceof Error ? error.message : 'The testnet instruction could not be submitted.'} Do not retry automatically; check the live position panel or PERPL first.`); }
     }
     window.addEventListener('mot:submit-testnet-order', submit);
     return () => window.removeEventListener('mot:submit-testnet-order', submit);
@@ -73,7 +75,7 @@ export function PerplAuthorization({ wallet, chain }: { wallet: string; chain: s
       } });
       session.current = next; next.start();
     } catch (error) {
-      if (attempt === generation.current) { setState({ status: 'error', accounts: [], message: error instanceof Error ? error.message : 'Could not connect this API key.' }); setWorking(false); }
+      if (attempt === generation.current) { setState({ status: 'error', accounts: [], positions: [], message: error instanceof Error ? error.message : 'Could not connect this API key.' }); setWorking(false); }
     } finally {
       if (attempt === generation.current) {
         if (tokenInput.current) tokenInput.current.value = '';
@@ -105,7 +107,8 @@ export function PerplAuthorization({ wallet, chain }: { wallet: string; chain: s
       </div>) : <p>API authentication works, but this wallet snapshot has no exchange account. Create and fund one on PERPL testnet.</p>}
       <p>To enable forwarding, use PERPL’s One-Click Trading setting. MOT does not change this permission for you.</p>
     </>}
-    {(working || active) && <button className="wallet-button" onClick={() => { generation.current++; session.current?.disconnect(); session.current = null; setWorking(false); setConsent(false); setState({ status: 'closed', accounts: [], message: 'Disconnected. The API key is still valid on PERPL until you revoke it there.' }); }}>Disconnect API session</button>}
+    {active && state.positions.length > 0 && <div className="perpl-account"><strong>Live open positions: {state.positions.length}</strong>{state.positions.map(position => <p key={position.positionId}>Market #{position.marketId} · {position.side} · {position.leverage / 100}x · position #{position.positionId}</p>)}</div>}
+    {(working || active) && <button className="wallet-button" onClick={() => { generation.current++; session.current?.disconnect(); session.current = null; setWorking(false); setConsent(false); setState({ status: 'closed', accounts: [], positions: [], message: 'Disconnected. The API key is still valid on PERPL until you revoke it there.' }); }}>Disconnect API session</button>}
     <p className="perpl-security-note">Session-only: credentials are not saved to browser storage or uploaded to MOT’s server. Reloading, changing wallet/network, or disconnecting clears the local session. This does not revoke the key on PERPL. API keys cannot withdraw funds, but a trade-enabled key can open losing positions; use testnet only.</p>
   </div>;
 }

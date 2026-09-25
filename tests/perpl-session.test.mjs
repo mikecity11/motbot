@@ -88,8 +88,19 @@ test('submits only explicitly supplied frames and correlates command admission',
   const pending = session.submitOrders([order]);
   assert.deepEqual(socket.frames.at(-1), order);
   socket.receive({ mt: 3, sid: 100, cid, status: { code: 0, error: '' } });
-  assert.deepEqual(await pending, [{ correlationId: cid, accepted: true, code: 0, error: '' }]);
+  assert.deepEqual(await pending, [{ correlationId: cid, accepted: true, code: 0, error: '', evidence: 'admission' }]);
   assert.equal(session.nextRequestId(1), 10);
+});
+
+test('reconciles a missing command acknowledgement from the position stream', async t => {
+  const { socket, session } = await fixture(t);
+  socket.receive({ ...snapshot, as: [{ ...account, lfr: 8 }] });
+  const cid = session.nextCorrelationId();
+  const order = { mt: 22, sn: cid, rq: 9, mkt: 16, acc: 1, t: 1, p: 0, s: 1, ms: 50, fl: 4, lv: 300, lb: 20 };
+  const pending = session.submitOrders([order]);
+  socket.receive({ mt: 27, d: [{ acc: 1, mkt: 16, pid: 44, rq: 9, sd: 2, st: 1, c: '5000000', ep: 100, s: 1, lv: 300 }] });
+  assert.equal((await pending)[0].evidence, 'position');
+  assert.equal(session.getPositions()[0].side, 'short');
 });
 
 test('a mismatched wallet closes the session and clears verified accounts', async t => {

@@ -11,9 +11,22 @@ export type PerplAccount = {
   lockedBalance: string | null;
   lastForwardedRequestId: number;
 };
+export type PerplPosition = {
+  accountId: number;
+  marketId: number;
+  positionId: number;
+  requestId: number;
+  side: 'long' | 'short';
+  collateral: string;
+  entryPrice: number;
+  size: number;
+  leverage: number;
+  status: number;
+};
 export type SessionState = {
   status: 'connecting' | 'authenticated' | 'closed' | 'error';
   accounts: PerplAccount[];
+  positions: PerplPosition[];
   message: string;
 };
 type Frame = Record<string, unknown>;
@@ -25,7 +38,7 @@ type SessionOptions = {
   onState: (state: SessionState) => void;
   socketFactory?: (url: string) => SocketLike;
 };
-export type OrderAdmission = { correlationId: number; accepted: boolean; code: number; error: string };
+export type OrderAdmission = { correlationId: number; accepted: boolean; code: number; error: string; evidence: 'admission' | 'order' | 'position' | 'forwarded' };
 
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -76,10 +89,25 @@ export function decodeWalletSnapshot(frame: unknown, wallet: string): PerplAccou
   return frame.as.map(decodeAccount);
 }
 
+export function decodePosition(value: unknown): PerplPosition {
+  if (!object(value) || !positiveId(value.acc) || !positiveId(value.mkt) || !positiveId(value.pid) || typeof value.rq !== 'number' || !Number.isSafeInteger(value.rq) || value.rq < 0) throw new Error('Invalid position update.');
+  if (value.sd !== 1 && value.sd !== 2) throw new Error('Invalid position side.');
+  if (typeof value.st !== 'number' || !Number.isSafeInteger(value.st)) throw new Error('Invalid position status.');
+  return {
+    accountId: value.acc, marketId: value.mkt, positionId: value.pid, requestId: value.rq,
+    side: value.sd === 1 ? 'long' : 'short', collateral: amount(value.c) ?? '0',
+    entryPrice: typeof value.ep === 'number' && Number.isFinite(value.ep) ? value.ep : 0,
+    size: typeof value.s === 'number' && Number.isFinite(value.s) ? value.s : 0,
+    leverage: typeof value.lv === 'number' && Number.isFinite(value.lv) ? value.lv : 0,
+    status: value.st,
+  };
+}
+
 export class PerplReadOnlySession {
   private socket: SocketLike | null = null;
   private options: SessionOptions | null;
   private accounts: PerplAccount[] = [];
+  private positions: PerplPosition[] = [];
   private authenticated = false;
   private lastSequence: number | null = null;
   private authenticationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -87,7 +115,7 @@ export class PerplReadOnlySession {
   private freshnessTimer: ReturnType<typeof setInterval> | null = null;
   private lastMessage = Date.now();
   private ended = false;
-  private pending = new Map<number, { resolve: (value: OrderAdmission) => void; timer: ReturnType<typeof setTimeout> }>();
+  private pending = new Map<number, { accountId: number; requestId: number; resolve: (value: OrderAdmission) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private requestCounters = new Map<number, number>();
   private correlation = Math.floor(Math.random() * 1_000_000_000) + 1;
 
@@ -145,6 +173,25 @@ export class PerplReadOnlySession {
         if (index < 0) throw new Error('Unexpected account');
         this.accounts = this.accounts.map((item, i) => i === index ? account : item);
         this.emit('authenticated', 'Account status updated.');
+        this.resolveForwarded(account);
+      } else if ((frame.mt === 26 || frame.mt === 27) && this.authenticated) {
+        if (!Array.isArray(frame.d)) throw new Error('Invalid position stream.');
+        const updates = frame.d.map(decodePosition);
+        if (frame.mt === 26) this.positions = updates.filter(position => position.status === 1);
+        else for (const position of updates) {
+          const index = this.positions.findIndex(item => item.positionId === position.positionId);
+          if (position.status === 1) {
+            if (index < 0) this.positions.push(position); else this.positions[index] = position;
+          } else if (index >= 0) this.positions.splice(index, 1);
+          this.resolveRequest(position.requestId, position.accountId, true, 'position', 'Position update received from PERPL.');
+        }
+        this.emit('authenticated', frame.mt === 26 ? 'Open positions loaded from PERPL.' : 'Position status updated by PERPL.');
+      } else if (frame.mt === 24 && this.authenticated) {
+        if (!Array.isArray(frame.d)) throw new Error('Invalid order stream.');
+        for (const order of frame.d) if (object(order) && positiveId(order.rq) && positiveId(order.acc)) {
+          const failed = order.st === 7;
+          this.resolveRequest(order.rq, order.acc, !failed, 'order', failed ? `PERPL rejected the order${typeof order.sr === 'number' ? ` (reason ${order.sr})` : ''}.` : 'Order update received from PERPL.');
+        }
       } else if (frame.mt === 100 && this.authenticated) {
         if (typeof frame.sn !== 'number' || frame.sn !== this.lastSequence! + 1) throw new Error('Sequence gap');
         this.lastSequence = frame.sn;
@@ -153,14 +200,14 @@ export class PerplReadOnlySession {
         const pending = typeof cid === 'number' ? this.pending.get(cid) : undefined;
         if (typeof cid === 'number' && pending && object(frame.status) && typeof frame.status.code === 'number' && typeof frame.status.error === 'string') {
           clearTimeout(pending.timer); this.pending.delete(cid);
-          pending.resolve({ correlationId: cid, accepted: frame.status.code === 0, code: frame.status.code, error: frame.status.error });
+          pending.resolve({ correlationId: cid, accepted: frame.status.code === 0, code: frame.status.code, error: frame.status.error, evidence: 'admission' });
         }
       }
-      // Position/order updates are displayed in a later stage; admission never implies a fill.
     } catch { this.fail('Wallet verification failed or account updates were incomplete. Disconnecting safely; no orders were sent.'); }
   }
 
   getAccount(accountId: number) { return this.accounts.find(account => account.id === accountId) ?? null; }
+  getPositions() { return [...this.positions]; }
   nextRequestId(accountId: number, count = 1) {
     const account = this.getAccount(accountId);
     if (!account || !Number.isSafeInteger(count) || count < 1) throw new Error('Choose a verified PERPL account.');
@@ -175,9 +222,15 @@ export class PerplReadOnlySession {
     if (!orders.length || orders.length > 3) throw new Error('An opening may include at most two protection orders.');
     const admissions = orders.map(order => new Promise<OrderAdmission>((resolve, reject) => {
       const cid = order.sn;
-      if (!positiveId(cid) || this.pending.has(cid)) { reject(new Error('Invalid order correlation ID.')); return; }
-      const timer = setTimeout(() => { this.pending.delete(cid); reject(new Error('PERPL did not acknowledge the order in time. Do not retry automatically.')); }, 15000);
-      this.pending.set(cid, { resolve, timer });
+      if (!positiveId(cid) || !positiveId(order.acc) || !positiveId(order.rq) || this.pending.has(cid)) { reject(new Error('Invalid order correlation ID.')); return; }
+      const timer = setTimeout(() => {
+        const item = this.pending.get(cid); if (!item) return;
+        this.pending.delete(cid);
+        const account = this.getAccount(item.accountId);
+        if (account && account.lastForwardedRequestId >= item.requestId) resolve({ correlationId: cid, accepted: true, code: 0, error: 'PERPL forwarded the request; command acknowledgement was delayed.', evidence: 'forwarded' });
+        else reject(new Error('PERPL did not acknowledge or report this order in time. Its outcome is uncertain; check PERPL before sending another instruction.'));
+      }, 15000);
+      this.pending.set(cid, { accountId: order.acc, requestId: order.rq, resolve, reject, timer });
     }));
     try {
       for (const order of orders) this.socket.send(JSON.stringify(order));
@@ -190,7 +243,20 @@ export class PerplReadOnlySession {
     }
   }
 
-  private emit(status: SessionState['status'], message: string) { this.options?.onState({ status, accounts: status === 'authenticated' ? [...this.accounts] : [], message }); }
+  private resolveRequest(requestId: number, accountId: number, accepted: boolean, evidence: OrderAdmission['evidence'], error: string) {
+    for (const [cid, item] of this.pending) if (item.requestId === requestId && item.accountId === accountId) {
+      clearTimeout(item.timer); this.pending.delete(cid);
+      item.resolve({ correlationId: cid, accepted, code: accepted ? 0 : 409, error, evidence });
+    }
+  }
+  private resolveForwarded(account: PerplAccount) {
+    for (const [cid, item] of this.pending) if (item.accountId === account.id && account.lastForwardedRequestId >= item.requestId) {
+      clearTimeout(item.timer); this.pending.delete(cid);
+      item.resolve({ correlationId: cid, accepted: true, code: 0, error: 'PERPL forwarded the request.', evidence: 'forwarded' });
+    }
+  }
+
+  private emit(status: SessionState['status'], message: string) { this.options?.onState({ status, accounts: status === 'authenticated' ? [...this.accounts] : [], positions: status === 'authenticated' ? [...this.positions] : [], message }); }
   private fail(message: string) { if (this.ended) return; this.emit('error', message); this.dispose(); }
 
   disconnect() { if (this.ended) return; this.emit('closed', 'Session disconnected. Revoke the API key on PERPL to remove its permissions.'); this.dispose(); }
@@ -207,6 +273,6 @@ export class PerplReadOnlySession {
       this.socket.onopen = null; this.socket.onmessage = null; this.socket.onclose = null; this.socket.onerror = null;
       this.socket.close(); this.socket = null;
     }
-    this.options = null; this.accounts = []; this.authenticated = false;
+    this.options = null; this.accounts = []; this.positions = []; this.authenticated = false;
   }
 }
