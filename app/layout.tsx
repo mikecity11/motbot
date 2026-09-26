@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./super-app.css";
 
 export const metadata: Metadata = {
   title: "MOTBOT — The conversational super-app for Monad",
