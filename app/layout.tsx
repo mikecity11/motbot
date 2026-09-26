@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MOTBOT — Talk to your trading assistant",
-  description: "Voice and text trading workspace for PERPL on Monad.",
+  title: "MOTBOT — The conversational super-app for Monad",
+  description: "Discover and interact with apps across Monad through one voice and text interface.",
   other: {
     "codex-preview": "development",
   },
