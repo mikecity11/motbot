@@ -36,6 +36,15 @@ test('unsupported alerts are not claimed active',async()=>{
  assert.match(await builtInReply(input('Notify me when BTC hits $200'),async()=>[]),/No alert has been scheduled/);
  assert.match(await builtInReply(input('Close my BTC position'),async()=>[]),/No close or cancel order/);
 });
+test('position questions use the verified PERPL browser snapshot',async()=>{
+ assert.match(await builtInReply(input('What are my current positions?'),async()=>[]),/verify your PERPL/);
+ const empty=chatInputSchema.parse({message:'Show my open trades',perpl:{verified:true,positions:[]}});
+ assert.match(await builtInReply(empty,async()=>[]),/no open positions/);
+ const open=chatInputSchema.parse({message:'What are my current positions?',perpl:{verified:true,positions:[{marketId:1,positionId:42,side:'short',collateral:'5000000',entryPrice:84500,size:15,leverage:300}]}});
+ const reply=await builtInReply(open,async()=>[{id:1,symbol:'BTC',price:84500,timestamp:Date.now(),source:'PERPL'}]);
+ assert.match(reply,/1 open position/);assert.match(reply,/BTC · short · 3x leverage · position #42/);
+ assert.match(buildInstructions(open,[]),/perplSession/);
+});
 test('model output is validated and execution claims fail closed',()=>{
  assert.equal(aiResponseSchema.safeParse({intent:'execute',reply:'done',trade:null}).success,false);
  assert.match(renderAiReply({intent:'conversation',reply:'I opened your trade.',trade:null},input('hello')),/No action was taken/);

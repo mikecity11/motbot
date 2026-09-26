@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { importApiSigningKey, PerplReadOnlySession, type SessionState } from '@/lib/mot/perpl-session';
+import { importApiSigningKey, PerplReadOnlySession, type PerplPosition, type SessionState } from '@/lib/mot/perpl-session';
 import { decodeTradingContext, planMarketOrders, type ProtectionPreferences, type TradeCandidate } from '@/lib/mot/perpl-orders';
 
 type SubmitDetail = { id: string; trade: TradeCandidate; preferences: ProtectionPreferences };
 
-export function PerplAuthorization({ wallet, chain }: { wallet: string; chain: string }) {
+export function PerplAuthorization({ wallet, chain, onSessionChange }: { wallet: string; chain: string; onSessionChange?: (snapshot: { verified: boolean; positions: PerplPosition[] }) => void }) {
   const tokenInput = useRef<HTMLInputElement>(null);
   const secretInput = useRef<HTMLInputElement>(null);
   const session = useRef<PerplReadOnlySession | null>(null);
@@ -13,6 +13,10 @@ export function PerplAuthorization({ wallet, chain }: { wallet: string; chain: s
   const [consent, setConsent] = useState(false);
   const [state, setState] = useState<SessionState | null>(null);
   const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    onSessionChange?.({ verified: state?.status === 'authenticated', positions: state?.status === 'authenticated' ? state.positions : [] });
+  }, [state, onSessionChange]);
 
   useEffect(() => {
     async function submit(event: Event) {

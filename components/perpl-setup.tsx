@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { PerplAuthorization } from '@/components/perpl-authorization';
+import type { PerplPosition } from '@/lib/mot/perpl-session';
 
 type Check = { address: string; accountExists?: boolean; accountId?: string; error?: string };
 type Provider = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown>; on?: (event: string, fn: (value: string) => void) => void; removeListener?: (event: string, fn: (value: string) => void) => void };
 
-export function PerplSetup({ wallet, connect }: { wallet: string; connect: () => void }) {
+export function PerplSetup({ wallet, connect, onSessionChange }: { wallet: string; connect: () => void; onSessionChange?: (snapshot: { verified: boolean; positions: PerplPosition[] }) => void }) {
   const [check, setCheck] = useState<Check | null>(null);
   const [chain, setChain] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -49,7 +50,7 @@ export function PerplSetup({ wallet, connect }: { wallet: string; connect: () =>
       <button className="wallet-button" onClick={() => setRefresh(value => value + 1)}>Refresh account check</button>
       <p><a href="https://testnet.perpl.xyz" target="_blank" rel="noreferrer">Open PERPL testnet to create or fund an account ↗</a></p>
       <p><a href="https://testnet.perpl.xyz/apikeys" target="_blank" rel="noreferrer">PERPL testnet API keys ↗</a></p>
-      <PerplAuthorization wallet={wallet} chain={chain}/>
+      <PerplAuthorization wallet={wallet} chain={chain} onSessionChange={onSessionChange}/>
       <p>After API authentication and forwarding are verified, a complete chat instruction can be reviewed and submitted on testnet.</p>
     </>}
     <p>MOT never deposits, withdraws, or changes wallet approvals. Testnet orders require your explicit confirmation.</p>
