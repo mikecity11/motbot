@@ -1,7 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import '../vendor/shadcn-tailwind-4.13.0.css';
-@import './super-app.css';
 /* Product-site presentation */
 .ai-status{padding:12px 0;color:#bcb3d3;font-size:12px;line-height:1.7}.ai-status label{display:flex;gap:10px;align-items:flex-start}.ai-status input{accent-color:#ab96ff;margin-top:4px;flex-shrink:0}.message>a{font-size:12px;color:#c9b8ff;text-decoration:underline}.saved-conversation{max-width:760px;margin:0 auto;padding:64px 24px;line-height:1.8}.saved-conversation>a{color:#c9b8ff}.saved-conversation h1{font-size:36px}.saved-conversation .saved-reply{white-space:pre-wrap;overflow-wrap:anywhere;padding:24px;border:1px solid #44365f;border-radius:16px;background:#171320}
 .trade-submit{border:1px solid #6b58a4;background:#b49cff;color:#171124;border-radius:9px;padding:11px 15px;font-weight:700;margin:2px 0 10px}.trade-submit:disabled{opacity:.55}
