@@ -3,6 +3,7 @@ import {cookies} from 'next/headers';
 import {NextResponse} from 'next/server';
 import {getMarkets} from '@/lib/mot/markets';
 import {getKuruMonUsdc,parseKuruSwap,prepareKuruMonSell} from '@/lib/mot/kuru';
+import {parseUniswapSwap,prepareUniswapMonSell} from '@/lib/mot/uniswap';
 import {getBaseToMonadQuote} from '@/lib/mot/relay';
 import {chatInputSchema,builtInReply,kuruBuiltInReply,relayBuiltInReply,containsPotentialCredential,executableTradeCandidate,parseExplicitOpening,renderAiReply} from '@/lib/mot/chat-core';
 import {aiConfigured,aiPersistenceConfigured,DEFAULT_AI_MODEL,generateMotReply} from '@/lib/mot/ai-model';
@@ -18,6 +19,12 @@ export async function POST(request:Request){
  let data:unknown;try{data=JSON.parse(raw);}catch{return response('Please send a valid message.','preview',400);}
  const parsed=chatInputSchema.safeParse(data);if(!parsed.success)return response('Please use a message of 1–3,000 characters and valid trading preferences.','preview',400);const input=parsed.data;
  if([input.message,...input.history.map(t=>t.content)].some(containsPotentialCredential))return response('Do not share API secrets, tokens, wallet private keys, or seed phrases in chat. Use the PERPL setup panel. This message was not sent to an AI provider or saved.','preview',400);
+ const uniswapSwap=parseUniswapSwap(input.message);
+ if(uniswapSwap){
+  if(!input.walletAddress)return response('Connect your wallet first so MOT can prepare the Uniswap swap for your address. No transaction was created.','uniswap_swap');
+  try{const candidate=await prepareUniswapMonSell(input.walletAddress as `0x${string}`,uniswapSwap);return response(`Uniswap swap ready: ${candidate.amountInMon.toLocaleString()} MON → approximately ${candidate.expectedOutUsdc.toFixed(6)} USDC. Minimum received: ${candidate.minimumOutUsdc.toFixed(6)} USDC with ${(candidate.slippageBps/100).toFixed(2)}% slippage. This quote expires in 10 minutes. Review and confirm in your wallet; this uses Monad mainnet and real funds.`,'uniswap_swap',200,{uniswapCandidate:candidate});}
+  catch(error){const message=error instanceof Error?error.message:'Uniswap could not prepare this swap.';return response(`${message} No transaction was submitted.`,'uniswap_swap',400);}
+ }
  const kuruSwap=parseKuruSwap(input.message);
  if(kuruSwap){
   if(!input.walletAddress)return response('Connect your wallet first so MOT can simulate the Kuru swap for your address. No transaction was created.','kuru_swap');
