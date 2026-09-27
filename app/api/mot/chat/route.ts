@@ -2,7 +2,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {cookies} from 'next/headers';
 import {NextResponse} from 'next/server';
 import {getMarkets} from '@/lib/mot/markets';
-import {getKuruMonUsdc} from '@/lib/mot/kuru';
+import {getKuruMonUsdc,parseKuruSwap,prepareKuruMonSell} from '@/lib/mot/kuru';
 import {getBaseToMonadQuote} from '@/lib/mot/relay';
 import {chatInputSchema,builtInReply,kuruBuiltInReply,relayBuiltInReply,containsPotentialCredential,executableTradeCandidate,parseExplicitOpening,renderAiReply} from '@/lib/mot/chat-core';
 import {aiConfigured,aiPersistenceConfigured,DEFAULT_AI_MODEL,generateMotReply} from '@/lib/mot/ai-model';
@@ -18,6 +18,14 @@ export async function POST(request:Request){
  let data:unknown;try{data=JSON.parse(raw);}catch{return response('Please send a valid message.','preview',400);}
  const parsed=chatInputSchema.safeParse(data);if(!parsed.success)return response('Please use a message of 1–3,000 characters and valid trading preferences.','preview',400);const input=parsed.data;
  if([input.message,...input.history.map(t=>t.content)].some(containsPotentialCredential))return response('Do not share API secrets, tokens, wallet private keys, or seed phrases in chat. Use the PERPL setup panel. This message was not sent to an AI provider or saved.','preview',400);
+ const kuruSwap=parseKuruSwap(input.message);
+ if(kuruSwap){
+  if(!input.walletAddress)return response('Connect your wallet first so MOT can simulate the Kuru swap for your address. No transaction was created.','kuru_swap');
+  try{
+   const candidate=await prepareKuruMonSell(input.walletAddress as `0x${string}`,kuruSwap);
+   return response(`Kuru swap ready: ${candidate.amountInMon.toLocaleString()} MON → approximately ${candidate.expectedOutUsdc.toFixed(6)} USDC. Minimum received: ${candidate.minimumOutUsdc.toFixed(6)} USDC with ${(candidate.slippageBps/100).toFixed(2)}% slippage. Review and confirm in your wallet; this uses Monad mainnet and real funds.`,'kuru_swap',200,{kuruCandidate:candidate});
+  }catch(error){const message=error instanceof Error?error.message:'Kuru could not prepare this swap.';return response(`${message} No transaction was submitted.`,'kuru_swap',400);}
+ }
  const kuruReply=await kuruBuiltInReply(input,getKuruMonUsdc);if(kuruReply)return response(kuruReply,'kuru_data');
  const relayReply=await relayBuiltInReply(input,getBaseToMonadQuote);if(relayReply)return response(relayReply,'relay_quote');
  const builtIn=await builtInReply(input,getMarkets);if(builtIn)return response(builtIn,'preview',200,{tradeCandidate:executableTradeCandidate(parseExplicitOpening(input.message),input.settings)});
