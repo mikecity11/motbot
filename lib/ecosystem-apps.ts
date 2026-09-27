@@ -1,4 +1,4 @@
-export type EcosystemStatus='integrated'|'next'|'discover';
+export type EcosystemStatus='integrated'|'data'|'next'|'discover';
 export type EcosystemApp={name:string;category:string;description:string;status:EcosystemStatus};
 
 const groups:Record<string,string[]>={
@@ -16,7 +16,7 @@ const descriptions:Record<string,string>={
 const next=new Set(['Levr','Kuru','Uniswap','Relay','PingMe','Nadradar']);
 
 export const ecosystemApps:EcosystemApp[]=Object.entries(groups).flatMap(([category,names])=>names.map(name=>({
-  name,category,description:descriptions[name]||`Explore ${name} through the Monad ecosystem.`,status:name==='Perpl'?'integrated':next.has(name)?'next':'discover'
+  name,category,description:descriptions[name]||`Explore ${name} through the Monad ecosystem.`,status:name==='Perpl'?'integrated':name==='Kuru'?'data':next.has(name)?'next':'discover'
 })));
 
 export const ecosystemCategories=['All',...Object.keys(groups)];

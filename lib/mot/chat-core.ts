@@ -14,6 +14,7 @@ export const chatInputSchema = z.object({
 }).refine(value=>value.history.reduce((n,turn)=>n+turn.content.length,0)<=10000,'Context too long');
 export type ChatInput=z.infer<typeof chatInputSchema>;
 export type MarketQuote={symbol:string;price:number|null;timestamp:number|null;source:string};
+export type KuruQuote={market:string;bestBid:number;bestAsk:number;midpoint:number;spreadPercent:number;blockNumber:number;source:string;observedAt:string};
 export const aiResponseSchema=z.object({
  intent:z.enum(['conversation','analysis','trade_preview','clarification']),reply:z.string().min(1).max(2400),
  trade:z.object({market:z.enum(['BTC','ETH','SOL','MON','HYPE','ZEC','LIT','PUMP']).nullable(),side:z.enum(['long','short']).nullable(),marginUSD:z.number().finite().positive().max(100000).nullable(),leverage:z.number().finite().positive().max(100).nullable()}).nullable(),
@@ -70,6 +71,19 @@ export async function builtInReply(input:ChatInput,getMarkets:()=>Promise<(Marke
   }catch{return 'PERPL market data is unavailable right now. I cannot give you a verified current price.';}
  }
  if(/^(?:explain|what (?:is|are)) (?:margin|leverage|margin and leverage)[?.!]?$/i.test(input.message))return 'Margin is the collateral allocated to a trade. Leverage determines exposure: $10 margin at 10x means approximately $100 exposure before fees. Both gains and losses are amplified. Default TP and SL percentages use each trade’s opening margin.';
+ return null;
+}
+
+export async function kuruBuiltInReply(input:ChatInput,getKuru:()=>Promise<KuruQuote>):Promise<string|null>{
+ const text=input.message.toLowerCase();const mentionsKuru=/\bkuru\b/.test(text);const asksBook=/\b(order ?book|best bid|best ask|spread)\b/.test(text);const asksMonPrice=mentionsKuru&&/\b(mon|monad)\b/.test(text)&&/\b(price|worth|quote|rate)\b/.test(text);
+ if(mentionsKuru&&/\b(swap|buy|sell|trade)\b/.test(text)){
+  const amount=text.match(/\b(\d+(?:\.\d+)?)\s*(mon|usdc)\b/i);const direction=/\bmon\s+(?:to|for|into)\s+usdc\b/i.test(text)?'MON → USDC':/\busdc\s+(?:to|for|into)\s+mon\b/i.test(text)?'USDC → MON':null;
+  if(!amount||!direction)return 'Tell me the amount and direction for the Kuru swap, for example: “Swap 10 MON to USDC on Kuru.” No transaction has been prepared.';
+  try{const quote=await getKuru();return `Kuru swap preview: ${amount[1]} ${direction}. Current MON-USDC midpoint is $${quote.midpoint.toFixed(6)} with a ${quote.spreadPercent.toFixed(3)}% spread. Source: Kuru onchain order book · block ${quote.blockNumber}. This is market context, not a guaranteed execution quote. Kuru wallet execution is not enabled yet, so no transaction was submitted.`;}catch{return 'Kuru’s onchain market is unavailable right now. No swap was prepared or submitted.';}
+ }
+ if(mentionsKuru&&(asksBook||asksMonPrice)){
+  try{const quote=await getKuru();return `Kuru MON-USDC order book: best bid $${quote.bestBid.toFixed(6)} · best ask $${quote.bestAsk.toFixed(6)} · midpoint $${quote.midpoint.toFixed(6)} · spread ${quote.spreadPercent.toFixed(3)}%. Source: Kuru onchain order book · block ${quote.blockNumber}.`;}catch{return 'Kuru’s onchain MON-USDC order book is unavailable right now. I will not estimate it.';}
+ }
  return null;
 }
 export function buildInstructions(input:ChatInput,markets:MarketQuote[]){

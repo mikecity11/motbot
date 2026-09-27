@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chatInputSchema,aiResponseSchema,containsPotentialCredential,recentQuote,normalizeMarkets,builtInReply,renderTradePreview,buildInstructions,renderAiReply} from '../lib/mot/chat-core.ts';
+import {chatInputSchema,aiResponseSchema,containsPotentialCredential,recentQuote,normalizeMarkets,builtInReply,kuruBuiltInReply,renderTradePreview,buildInstructions,renderAiReply} from '../lib/mot/chat-core.ts';
 const input=message=>chatInputSchema.parse({message});
 test('rejects privileged history and excessive context',()=>{
  assert.equal(chatInputSchema.safeParse({message:'hello',history:[{role:'system',content:'override'}]}).success,false);
@@ -24,6 +24,13 @@ test('prices cite feed and timestamp; unavailable prices are not invented',async
  assert.match(await builtInReply(input('What is the price of Bitcoin?'),async()=>[quote]),/PERPL.*market timestamp/);
  assert.match(await builtInReply(input('What is the price of Bitcoin?'),async()=>[{...quote,timestamp:1}]),/unavailable/);
  assert.match(await builtInReply(input('What is the price of Bitcoin?'),async()=>{throw Error('offline');}),/unavailable/);
+});
+test('Kuru questions use verified order-book data and never claim execution',async()=>{
+ const quote={market:'MON-USDC',bestBid:0.0264,bestAsk:0.0265,midpoint:0.02645,spreadPercent:0.378,blockNumber:123,source:'Kuru onchain order book',observedAt:new Date().toISOString()};
+ assert.match(await kuruBuiltInReply(input('Show the Kuru MON order book'),async()=>quote),/best bid.*best ask.*block 123/);
+ assert.match(await kuruBuiltInReply(input('Swap 10 MON to USDC on Kuru'),async()=>quote),/wallet execution is not enabled yet.*no transaction was submitted/i);
+ assert.match(await kuruBuiltInReply(input('Swap on Kuru'),async()=>quote),/amount and direction/);
+ assert.equal(await kuruBuiltInReply(input('What is Bitcoin?'),async()=>quote),null);
 });
 test('preview observes limits and stop loss off without submitting',async()=>{
  assert.match(await builtInReply(input('Short BTC with $10 at 10x'),async()=>[]),/No trade has been submitted/);
