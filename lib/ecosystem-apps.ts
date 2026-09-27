@@ -16,7 +16,7 @@ const descriptions:Record<string,string>={
 const next=new Set(['Levr','Kuru','Uniswap','Relay','PingMe','Nadradar']);
 
 export const ecosystemApps:EcosystemApp[]=Object.entries(groups).flatMap(([category,names])=>names.map(name=>({
-  name,category,description:descriptions[name]||`Explore ${name} through the Monad ecosystem.`,status:name==='Perpl'?'integrated':name==='Kuru'?'data':next.has(name)?'next':'discover'
+  name,category,description:descriptions[name]||`Explore ${name} through the Monad ecosystem.`,status:name==='Perpl'?'integrated':['Kuru','Relay'].includes(name)?'data':next.has(name)?'next':'discover'
 })));
 
 export const ecosystemCategories=['All',...Object.keys(groups)];

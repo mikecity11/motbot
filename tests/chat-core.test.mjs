@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chatInputSchema,aiResponseSchema,containsPotentialCredential,recentQuote,normalizeMarkets,builtInReply,kuruBuiltInReply,renderTradePreview,buildInstructions,renderAiReply} from '../lib/mot/chat-core.ts';
+import {chatInputSchema,aiResponseSchema,containsPotentialCredential,recentQuote,normalizeMarkets,builtInReply,kuruBuiltInReply,relayBuiltInReply,renderTradePreview,buildInstructions,renderAiReply} from '../lib/mot/chat-core.ts';
 const input=message=>chatInputSchema.parse({message});
 test('rejects privileged history and excessive context',()=>{
  assert.equal(chatInputSchema.safeParse({message:'hello',history:[{role:'system',content:'override'}]}).success,false);
@@ -31,6 +31,14 @@ test('Kuru questions use verified order-book data and never claim execution',asy
  assert.match(await kuruBuiltInReply(input('Swap 10 MON to USDC on Kuru'),async()=>quote),/wallet execution is not enabled yet.*no transaction was submitted/i);
  assert.match(await kuruBuiltInReply(input('Swap on Kuru'),async()=>quote),/amount and direction/);
  assert.equal(await kuruBuiltInReply(input('What is Bitcoin?'),async()=>quote),null);
+});
+test('Relay bridge requests require a wallet and return a quote without claiming execution',async()=>{
+ const request='Bridge 0.001 ETH from Base to Monad using Relay';
+ assert.match(await relayBuiltInReply(input(request),async()=>{throw Error('should not run');}),/Connect your destination wallet/);
+ const connected=chatInputSchema.parse({message:request,wallet:true,walletAddress:'0x0000000000000000000000000000000000000001'});
+ const reply=await relayBuiltInReply(connected,async()=>({amountInEth:0.001,amountOutMon:99.6,minimumOutMon:96.7,impactPercent:-2.2,estimatedSeconds:1}));
+ assert.match(reply,/99\.6000 MON.*not a submitted transaction/);
+ assert.equal(await relayBuiltInReply(input('Show the Kuru market'),async()=>{throw Error('should not run');}),null);
 });
 test('preview observes limits and stop loss off without submitting',async()=>{
  assert.match(await builtInReply(input('Short BTC with $10 at 10x'),async()=>[]),/No trade has been submitted/);

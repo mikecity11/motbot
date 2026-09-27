@@ -9,7 +9,7 @@ export const settingsSchema = z.object({
 });
 export const chatInputSchema = z.object({
  message:z.string().trim().min(1).max(3000),history:z.array(z.object({role:z.enum(['user','assistant']),content:z.string().trim().min(1).max(3000)})).max(10).default([]),
- settings:settingsSchema.default({}),wallet:z.boolean().default(false),aiConsent:z.boolean().default(false),
+ settings:settingsSchema.default({}),wallet:z.boolean().default(false),walletAddress:z.string().regex(/^0x[a-fA-F0-9]{40}$/).nullable().default(null),aiConsent:z.boolean().default(false),
  perpl:z.object({verified:z.boolean().default(false),positions:z.array(z.object({marketId:z.number().int().nonnegative(),positionId:z.number().int().nonnegative(),side:z.enum(['long','short']),collateral:z.string().regex(/^\d+$/).max(80),entryPrice:z.number().finite().nonnegative(),size:z.number().finite(),leverage:z.number().finite().nonnegative()})).max(50).default([])}).default({}),
 }).refine(value=>value.history.reduce((n,turn)=>n+turn.content.length,0)<=10000,'Context too long');
 export type ChatInput=z.infer<typeof chatInputSchema>;
@@ -85,6 +85,14 @@ export async function kuruBuiltInReply(input:ChatInput,getKuru:()=>Promise<KuruQ
   try{const quote=await getKuru();return `Kuru MON-USDC order book: best bid $${quote.bestBid.toFixed(6)} · best ask $${quote.bestAsk.toFixed(6)} · midpoint $${quote.midpoint.toFixed(6)} · spread ${quote.spreadPercent.toFixed(3)}%. Source: Kuru onchain order book · block ${quote.blockNumber}.`;}catch{return 'Kuru’s onchain MON-USDC order book is unavailable right now. I will not estimate it.';}
  }
  return null;
+}
+
+export async function relayBuiltInReply(input:ChatInput,getRelay:(input:{walletAddress:string;amountEth:number})=>Promise<{amountInEth:number;amountOutMon:number;minimumOutMon:number;impactPercent:number|null;estimatedSeconds:number|null}>):Promise<string|null>{
+ const text=input.message.toLowerCase();if(!/\brelay\b/.test(text)||!/\b(bridge|send|move)\b/.test(text))return null;
+ const match=text.match(/\b(\d+(?:\.\d+)?)\s*eth\b/);if(!match||!/\bbase\b/.test(text)||!/\bmonad\b/.test(text))return 'For a Relay quote, tell me the ETH amount, origin and destination—for example: “Bridge 0.001 ETH from Base to Monad using Relay.” No transaction was prepared.';
+ if(!input.walletAddress)return 'Connect your destination wallet first so Relay can calculate a Base-to-Monad quote for your address. No transaction was prepared.';
+ const amountEth=Number(match[1]);if(!Number.isFinite(amountEth)||amountEth<0.0001||amountEth>10)return 'Relay quotes in this MOTBOT preview support 0.0001–10 ETH. No transaction was prepared.';
+ try{const quote=await getRelay({walletAddress:input.walletAddress,amountEth});return `Relay bridge quote: ${quote.amountInEth} ETH on Base → approximately ${quote.amountOutMon.toFixed(4)} MON on Monad (minimum ${quote.minimumOutMon.toFixed(4)} MON).${quote.impactPercent===null?'':` Estimated total impact: ${quote.impactPercent.toFixed(2)}%.`}${quote.estimatedSeconds===null?'':` Estimated route time: about ${quote.estimatedSeconds} second${quote.estimatedSeconds===1?'':'s'}.`} This is a live quote, not a submitted transaction. Relay wallet execution is not enabled yet.`;}catch{return 'Relay could not find a Base-to-Monad route for that amount right now. No transaction was prepared.';}
 }
 export function buildInstructions(input:ChatInput,markets:MarketQuote[]){
  const quotes=markets.filter(m=>recentQuote(m)).map(({symbol,price,timestamp,source})=>({symbol,price,timestamp,source}));
