@@ -87,12 +87,14 @@ export async function kuruBuiltInReply(input:ChatInput,getKuru:()=>Promise<KuruQ
  return null;
 }
 
-export async function relayBuiltInReply(input:ChatInput,getRelay:(input:{walletAddress:string;amountEth:number})=>Promise<{amountInEth:number;amountOutMon:number;minimumOutMon:number;impactPercent:number|null;estimatedSeconds:number|null}>):Promise<string|null>{
- const text=input.message.toLowerCase();if(!/\brelay\b/.test(text)||!/\b(bridge|send|move)\b/.test(text))return null;
- const match=text.match(/\b(\d+(?:\.\d+)?)\s*eth\b/);if(!match||!/\bbase\b/.test(text)||!/\bmonad\b/.test(text))return 'For a Relay quote, tell me the ETH amount, origin and destination—for example: “Bridge 0.001 ETH from Base to Monad using Relay.” No transaction was prepared.';
- if(!input.walletAddress)return 'Connect your destination wallet first so Relay can calculate a Base-to-Monad quote for your address. No transaction was prepared.';
- const amountEth=Number(match[1]);if(!Number.isFinite(amountEth)||amountEth<0.0001||amountEth>10)return 'Relay quotes in this MOTBOT preview support 0.0001–10 ETH. No transaction was prepared.';
- try{const quote=await getRelay({walletAddress:input.walletAddress,amountEth});return `Relay bridge quote: ${quote.amountInEth} ETH on Base → approximately ${quote.amountOutMon.toFixed(4)} MON on Monad (minimum ${quote.minimumOutMon.toFixed(4)} MON).${quote.impactPercent===null?'':` Estimated total impact: ${quote.impactPercent.toFixed(2)}%.`}${quote.estimatedSeconds===null?'':` Estimated route time: about ${quote.estimatedSeconds} second${quote.estimatedSeconds===1?'':'s'}.`} This is a live quote, not a submitted transaction. Relay wallet execution is not enabled yet.`;}catch{return 'Relay could not find a Base-to-Monad route for that amount right now. No transaction was prepared.';}
+export async function relayBuiltInReply(input:ChatInput,getRelay:(input:{walletAddress:string;amount:number;tokenSymbol:string;originChain:string})=>Promise<{amountIn:number;amountOut:number;minimumOut:number;inputSymbol:string;outputSymbol:string;originChain:string;destinationChain:string;impactPercent:number|null;estimatedSeconds:number|null}>):Promise<string|null>{
+ const text=input.message.trim();if(!/\brelay\b/i.test(text)||!/\b(bridge|send|move)\b/i.test(text))return null;
+ const route=text.match(/\b(\d+(?:\.\d+)?)\s*([a-zA-Z0-9]{2,12})\s+from\s+([a-zA-Z][a-zA-Z0-9 -]{1,30}?)\s+to\s+monad\b/i);
+ if(!route)return 'For a Relay quote, tell me the amount, token, source network and Monad destination—for example: “Bridge 2 USDC from Base to Monad using Relay.” No transaction was prepared.';
+ if(!input.walletAddress)return 'Connect your destination wallet first so Relay can calculate this bridge quote for your address. No transaction was prepared.';
+ const amount=Number(route[1]);if(!Number.isFinite(amount)||amount<=0)return 'Enter a bridge amount greater than zero. No transaction was prepared.';
+ const tokenSymbol=route[2].toUpperCase(),originChain=route[3].trim();
+ try{const quote=await getRelay({walletAddress:input.walletAddress,amount,tokenSymbol,originChain});return `Relay bridge quote: ${quote.amountIn} ${quote.inputSymbol} on ${quote.originChain} → approximately ${quote.amountOut.toLocaleString('en-US',{maximumFractionDigits:8})} ${quote.outputSymbol} on ${quote.destinationChain} (minimum ${quote.minimumOut.toLocaleString('en-US',{maximumFractionDigits:8})} ${quote.outputSymbol}).${quote.impactPercent===null?'':` Estimated total impact: ${quote.impactPercent.toFixed(2)}%.`}${quote.estimatedSeconds===null?'':` Estimated route time: about ${quote.estimatedSeconds} second${quote.estimatedSeconds===1?'':'s'}.`} This is a live quote, not a submitted transaction. Relay wallet execution is not enabled yet.`;}catch(error){return `${error instanceof Error?error.message:'Relay could not find that route.'} No transaction was prepared.`;}
 }
 export function buildInstructions(input:ChatInput,markets:MarketQuote[]){
  const quotes=markets.filter(m=>recentQuote(m)).map(({symbol,price,timestamp,source})=>({symbol,price,timestamp,source}));
