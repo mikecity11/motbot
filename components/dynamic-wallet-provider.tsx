@@ -5,12 +5,12 @@ import {DynamicContextProvider, useDynamicContext} from '@dynamic-labs/sdk-react
 import {EthereumWalletConnectors} from '@dynamic-labs/ethereum';
 
 type SendRequest={to:`0x${string}`;data:`0x${string}`;value:bigint};
-type MotWalletContextValue={configured:boolean;address:string;source:'dynamic'|'browser'|null;open:()=>void;sendTransaction:(request:SendRequest)=>Promise<`0x${string}`>};
-const unavailable:MotWalletContextValue={configured:false,address:'',source:null,open:()=>{},sendTransaction:async()=>{throw Error('Dynamic wallet is not configured.');}};
+type MotWalletContextValue={configured:boolean;address:string;source:'dynamic'|'browser'|null;open:()=>void;disconnect:()=>Promise<void>;sendTransaction:(request:SendRequest)=>Promise<`0x${string}`>};
+const unavailable:MotWalletContextValue={configured:false,address:'',source:null,open:()=>{},disconnect:async()=>{},sendTransaction:async()=>{throw Error('Dynamic wallet is not configured.');}};
 const MotWalletContext=createContext<MotWalletContextValue>(unavailable);
 
 function DynamicWalletBridge({children}:{children:ReactNode}){
- const {primaryWallet,setShowAuthFlow}=useDynamicContext();
+ const {primaryWallet,setShowAuthFlow,handleLogOut}=useDynamicContext();
  const sendTransaction=useCallback(async(request:SendRequest)=>{
   if(!primaryWallet)throw Error('Sign in with Dynamic first.');
   if(primaryWallet.chain!=='EVM')throw Error('Select an EVM wallet in Dynamic.');
@@ -20,7 +20,8 @@ function DynamicWalletBridge({children}:{children:ReactNode}){
   if(typeof hash!=='string'||!/^0x[a-fA-F0-9]{64}$/.test(hash))throw Error('Dynamic did not return a transaction hash.');
   return hash as `0x${string}`;
  },[primaryWallet]);
- const value=useMemo<MotWalletContextValue>(()=>({configured:true,address:primaryWallet?.address??'',source:primaryWallet?'dynamic':null,open:()=>setShowAuthFlow(true),sendTransaction}),[primaryWallet,setShowAuthFlow,sendTransaction]);
+ const disconnect=useCallback(async()=>{await handleLogOut();},[handleLogOut]);
+ const value=useMemo<MotWalletContextValue>(()=>({configured:true,address:primaryWallet?.address??'',source:primaryWallet?'dynamic':null,open:()=>setShowAuthFlow(true),disconnect,sendTransaction}),[primaryWallet,setShowAuthFlow,disconnect,sendTransaction]);
  return <MotWalletContext.Provider value={value}>{children}</MotWalletContext.Provider>;
 }
 
