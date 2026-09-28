@@ -23,6 +23,9 @@ Database-backed limits default to 50 model attempts globally per rolling 24 hour
 - LEVR and Polymarket coming-soon dialogs.
 - Read-only PERPL testnet exchange-account checks and wallet network switching.
 - Browser-only API-key sign-in for PERPL testnet, verified against the connected wallet's snapshot; live account freeze and forwarding status updates.
+- Dynamic authentication and EVM embedded/external-wallet signing when `NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID` is configured. Enable email/social login and automatic EVM embedded-wallet creation in the Dynamic dashboard.
+- Envio Monad HyperRPC transaction monitoring when `ENVIO_API_TOKEN` is configured. Submitted Kuru and Uniswap swaps are polled until confirmed or reverted and the result is shown in chat.
+- Direct Kuru Monad order-book swaps with explicit wallet confirmation; Kuru remains the execution venue, not a logo-only integration.
 
 ## Integration work remaining
 - PERPL origin whitelisting and wallet-authorized Ed25519 key enrollment.

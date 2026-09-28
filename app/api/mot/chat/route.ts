@@ -8,9 +8,10 @@ import {getBaseToMonadQuote} from '@/lib/mot/relay';
 import {chatInputSchema,builtInReply,kuruBuiltInReply,relayBuiltInReply,containsPotentialCredential,executableTradeCandidate,parseExplicitOpening,renderAiReply} from '@/lib/mot/chat-core';
 import {aiConfigured,aiPersistenceConfigured,DEFAULT_AI_MODEL,generateMotReply} from '@/lib/mot/ai-model';
 import {reserveGeneration,completeGeneration,failGeneration,sessionHash} from '@/lib/mot/ai-storage';
+import {envioConfigured} from '@/lib/mot/envio';
 export const maxDuration=60;
 const response=(reply:string,mode='preview',status=200,extra={})=>NextResponse.json({reply,executed:false,mode,...extra},{status,headers:{'Cache-Control':'no-store'}});
-export async function GET(){return NextResponse.json({aiConfigured:aiConfigured(),executionEnabled:true},{headers:{'Cache-Control':'no-store'}});}
+export async function GET(){return NextResponse.json({aiConfigured:aiConfigured(),envioConfigured:envioConfigured(),dynamicConfigured:Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID),executionEnabled:true},{headers:{'Cache-Control':'no-store'}});}
 export async function POST(request:Request){
  if(!request.headers.get('content-type')?.includes('application/json'))return response('Please send a JSON message.','preview',415);
  if(request.headers.get('origin')&&request.headers.get('origin')!==new URL(request.url).origin)return response('Use MOTBOT’s own website to send messages.','preview',403);

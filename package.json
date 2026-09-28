@@ -15,6 +15,8 @@
   "dependencies": {
     "@ai-sdk/groq": "^4.0.45",
     "@base-ui/react": "^1.7.0",
+    "@dynamic-labs/ethereum": "5.8.0",
+    "@dynamic-labs/sdk-react-core": "5.8.0",
     "@hookform/resolvers": "^5.7.1",
     "@neondatabase/serverless": "^1.1.0",
     "@shadcn/react": "^0.3.0",
