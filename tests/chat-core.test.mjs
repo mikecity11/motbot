@@ -32,12 +32,14 @@ test('Kuru questions use verified order-book data and never claim execution',asy
  assert.match(await kuruBuiltInReply(input('Swap on Kuru'),async()=>quote),/amount and direction/);
  assert.equal(await kuruBuiltInReply(input('What is Bitcoin?'),async()=>quote),null);
 });
-test('Relay bridge requests require a wallet and return a quote without claiming execution',async()=>{
- const request='Bridge 0.001 ETH from Base to Monad using Relay';
+test('Relay bridge requests accept multiple tokens and networks without claiming execution',async()=>{
+ const request='Bridge 2 USDC from Base to Monad using Relay';
  assert.match(await relayBuiltInReply(input(request),async()=>{throw Error('should not run');}),/Connect your destination wallet/);
  const connected=chatInputSchema.parse({message:request,wallet:true,walletAddress:'0x0000000000000000000000000000000000000001'});
- const reply=await relayBuiltInReply(connected,async()=>({amountInEth:0.001,amountOutMon:99.6,minimumOutMon:96.7,impactPercent:-2.2,estimatedSeconds:1}));
- assert.match(reply,/99\.6000 MON.*not a submitted transaction/);
+ const reply=await relayBuiltInReply(connected,async request=>{assert.deepEqual(request,{walletAddress:'0x0000000000000000000000000000000000000001',amount:2,tokenSymbol:'USDC',originChain:'Base'});return {amountIn:2,amountOut:1.99,minimumOut:1.98,inputSymbol:'USDC',outputSymbol:'USDC',originChain:'Base',destinationChain:'Monad',impactPercent:-0.5,estimatedSeconds:1};});
+ assert.match(reply,/2 USDC on Base.*1\.99 USDC on Monad.*not a submitted transaction/);
+ const ethereum=chatInputSchema.parse({message:'Move 0.01 ETH from Ethereum to Monad with Relay',wallet:true,walletAddress:'0x0000000000000000000000000000000000000001'});
+ assert.match(await relayBuiltInReply(ethereum,async()=>({amountIn:0.01,amountOut:100,minimumOut:98,inputSymbol:'ETH',outputSymbol:'MON',originChain:'Ethereum',destinationChain:'Monad',impactPercent:null,estimatedSeconds:null})),/ETH on Ethereum.*MON on Monad/);
  assert.equal(await relayBuiltInReply(input('Show the Kuru market'),async()=>{throw Error('should not run');}),null);
 });
 test('preview observes limits and stop loss off without submitting',async()=>{
