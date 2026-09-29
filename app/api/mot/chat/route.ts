@@ -157,8 +157,15 @@ export async function POST(request: Request) {
   }
   const kuruReply = await kuruBuiltInReply(input, getKuruMonUsdc);
   if (kuruReply) return response(kuruReply, "kuru_data");
-  const relayReply = await relayBuiltInReply(input, getRelayQuote);
-  if (relayReply) return response(relayReply, "relay_quote");
+  let relayQuote: Awaited<ReturnType<typeof getRelayQuote>> | undefined;
+  const relayReply = await relayBuiltInReply(
+    input,
+    async (value) => (relayQuote = await getRelayQuote(value)),
+  );
+  if (relayReply)
+    return response(relayReply, "relay_quote", 200, {
+      relayCandidate: relayQuote?.candidate,
+    });
   const builtIn = await builtInReply(input, getMarkets);
   if (builtIn)
     return response(builtIn, "preview", 200, {
