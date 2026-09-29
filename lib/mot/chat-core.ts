@@ -363,6 +363,7 @@ export async function relayBuiltInReply(
     destinationChain: string;
     impactPercent: number | null;
     estimatedSeconds: number | null;
+    candidate?: unknown;
   }>,
 ): Promise<string | null> {
   const text = input.message.trim();
@@ -387,7 +388,7 @@ export async function relayBuiltInReply(
       tokenSymbol,
       originChain,
     });
-    return `Relay bridge quote: ${quote.amountIn} ${quote.inputSymbol} on ${quote.originChain} → approximately ${quote.amountOut.toLocaleString("en-US", { maximumFractionDigits: 8 })} ${quote.outputSymbol} on ${quote.destinationChain} (minimum ${quote.minimumOut.toLocaleString("en-US", { maximumFractionDigits: 8 })} ${quote.outputSymbol}).${quote.impactPercent === null ? "" : ` Estimated total impact: ${quote.impactPercent.toFixed(2)}%.`}${quote.estimatedSeconds === null ? "" : ` Estimated route time: about ${quote.estimatedSeconds} second${quote.estimatedSeconds === 1 ? "" : "s"}.`} This is a live quote, not a submitted transaction. Relay wallet execution is not enabled yet.`;
+    return `Relay bridge quote: ${quote.amountIn} ${quote.inputSymbol} on ${quote.originChain} → approximately ${quote.amountOut.toLocaleString("en-US", { maximumFractionDigits: 8 })} ${quote.outputSymbol} on ${quote.destinationChain} (minimum ${quote.minimumOut.toLocaleString("en-US", { maximumFractionDigits: 8 })} ${quote.outputSymbol}).${quote.impactPercent === null ? "" : ` Estimated total impact: ${quote.impactPercent.toFixed(2)}%.`}${quote.estimatedSeconds === null ? "" : ` Estimated route time: about ${quote.estimatedSeconds} second${quote.estimatedSeconds === 1 ? "" : "s"}.`} This is a live quote, not a submitted transaction.${quote.candidate ? " Review it below and confirm each required transaction in your wallet." : " Relay could not prepare safe wallet execution for this route."}`;
   } catch (error) {
     return `${error instanceof Error ? error.message : "Relay could not find that route."} No transaction was prepared.`;
   }
