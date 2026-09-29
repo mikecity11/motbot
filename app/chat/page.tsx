@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import type { PerplPosition } from "@/lib/mot/perpl-session";
 import { useMotWallet } from "@/components/dynamic-wallet-provider";
+import { createPublicClient, http } from "viem";
 type TradeCandidate = {
   market: string;
   side: "long" | "short";
@@ -68,6 +69,54 @@ type UniswapSwapCandidate = {
   data: `0x${string}`;
   value: `0x${string}`;
 };
+type RelayCandidate = {
+  requestId: string;
+  amount: number;
+  tokenSymbol: string;
+  originChainId: number;
+  originChainName: string;
+  rpcUrl: string;
+  explorerUrl: string;
+  nativeCurrency: { name: string; symbol: string; decimals: number };
+  quotedAt: number;
+  transactions: Array<{
+    step: "approve" | "deposit" | "transaction";
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value: string;
+  }>;
+};
+function validRelayCandidate(value: any): value is RelayCandidate {
+  return Boolean(
+    value &&
+      /^0x[a-fA-F0-9]{64}$/.test(value.requestId) &&
+      Number.isFinite(value.amount) &&
+      value.amount > 0 &&
+      /^[A-Za-z0-9]{2,12}$/.test(value.tokenSymbol) &&
+      Number.isSafeInteger(value.originChainId) &&
+      value.originChainId > 0 &&
+      typeof value.originChainName === "string" &&
+      /^https:\/\//.test(value.rpcUrl) &&
+      Number.isFinite(value.quotedAt) &&
+      value.nativeCurrency &&
+      typeof value.nativeCurrency.name === "string" &&
+      typeof value.nativeCurrency.symbol === "string" &&
+      Number.isInteger(value.nativeCurrency.decimals) &&
+      Array.isArray(value.transactions) &&
+      value.transactions.length > 0 &&
+      value.transactions.length <= 4 &&
+      value.transactions.some(
+        (transaction: any) => transaction.step === "deposit",
+      ) &&
+      value.transactions.every(
+        (transaction: any) =>
+          ["approve", "deposit", "transaction"].includes(transaction.step) &&
+          /^0x[a-fA-F0-9]{40}$/.test(transaction.to) &&
+          /^0x(?:[a-fA-F0-9]{2})*$/.test(transaction.data) &&
+          /^\d{1,80}$/.test(transaction.value),
+      ),
+  );
+}
 type KuruMarket = {
   market: string;
   bestBid: number;
@@ -85,6 +134,7 @@ type Message = {
   tradePreferences?: TradePreferences;
   kuruCandidate?: KuruSwapCandidate;
   uniswapCandidate?: UniswapSwapCandidate;
+  relayCandidate?: RelayCandidate;
   submission?: "submitting" | "submitted" | "confirmed" | "failed";
 };
 type Conversation = {
@@ -97,7 +147,7 @@ const messageId = () => crypto.randomUUID();
 const initial: Message = {
   id: "welcome",
   role: "mot",
-  text: "Hey, I’m MOT. Ask about a market or tell me what you want to do across Monad. You can type or use your voice. PERPL testnet orders plus wallet-confirmed Kuru and Uniswap swaps are available.",
+  text: "Hey, I’m MOT. Ask about a market or tell me what you want to do across Monad. You can type or use your voice. PERPL testnet orders, wallet-confirmed swaps, and Relay bridges to Monad are available.",
 };
 const defaults = {
   slOn: true,
@@ -412,37 +462,48 @@ export default function Home() {
     }
   }
   async function submitWalletTransaction(
+    chainId: number,
     to: `0x${string}`,
     data: `0x${string}`,
-    value: `0x${string}`,
+    value: string,
+    network?: Pick<
+      RelayCandidate,
+      "originChainName" | "rpcUrl" | "explorerUrl" | "nativeCurrency"
+    >,
   ) {
     if (dynamicWallet.address)
-      return dynamicWallet.sendTransaction({ to, data, value: BigInt(value) });
+      return dynamicWallet.sendTransaction({
+        chainId,
+        to,
+        data,
+        value: BigInt(value),
+      });
     const provider = (window as any).ethereum;
     if (!provider || !wallet) throw Error("Connect a wallet first.");
     try {
       await provider.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x8f" }],
+        params: [{ chainId: `0x${chainId.toString(16)}` }],
       });
     } catch (error: any) {
-      if (error?.code !== 4902) throw error;
+      if (error?.code !== 4902 || !network) throw error;
       await provider.request({
         method: "wallet_addEthereumChain",
         params: [
           {
-            chainId: "0x8f",
-            chainName: "Monad",
-            nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
-            rpcUrls: ["https://rpc.monad.xyz"],
-            blockExplorerUrls: ["https://monadscan.com"],
+            chainId: `0x${chainId.toString(16)}`,
+            chainName: network.originChainName,
+            nativeCurrency: network.nativeCurrency,
+            rpcUrls: [network.rpcUrl],
+            blockExplorerUrls: network.explorerUrl ? [network.explorerUrl] : [],
           },
         ],
       });
     }
+    const transactionValue = `0x${BigInt(value).toString(16)}`;
     const hash = await provider.request({
       method: "eth_sendTransaction",
-      params: [{ from: wallet, to, data, value }],
+      params: [{ from: wallet, to, data, value: transactionValue }],
     });
     if (typeof hash !== "string" || !/^0x[a-fA-F0-9]{64}$/.test(hash))
       throw Error("Wallet did not return a transaction hash.");
@@ -607,6 +668,9 @@ export default function Home() {
         Number.isInteger(d.uniswapCandidate.expiresAt)
           ? d.uniswapCandidate
           : undefined;
+      const relayCandidate = validRelayCandidate(d.relayCandidate)
+        ? d.relayCandidate
+        : undefined;
       setMessages((m) => [
         ...m,
         {
@@ -625,6 +689,7 @@ export default function Home() {
             : undefined,
           kuruCandidate,
           uniswapCandidate,
+          relayCandidate,
           generationUrl:
             typeof d.generationUrl === "string" &&
             /^\/chat\/[a-f0-9-]+$/.test(d.generationUrl)
@@ -709,6 +774,7 @@ export default function Home() {
     );
     try {
       const hash = await submitWalletTransaction(
+        143,
         candidate.marketAddress as `0x${string}`,
         candidate.data,
         candidate.value,
@@ -781,6 +847,7 @@ export default function Home() {
     );
     try {
       const hash = await submitWalletTransaction(
+        143,
         candidate.routerAddress as `0x${string}`,
         candidate.data,
         candidate.value,
@@ -805,6 +872,98 @@ export default function Home() {
             ? {
                 ...item,
                 text: `${item.text}\n\n${declined ? "Wallet confirmation was declined." : "Uniswap swap was not submitted. Check your MON balance and request a fresh quote."}`,
+                submission: "failed",
+              }
+            : item,
+        ),
+      );
+    }
+  }
+  async function submitRelay(message: Message) {
+    const quotedCandidate = message.relayCandidate;
+    if (
+      !quotedCandidate ||
+      message.submission === "submitting" ||
+      message.submission === "submitted"
+    )
+      return;
+    if (!wallet || (!dynamicWallet.address && !(window as any).ethereum)) {
+      setNotice("Connect the wallet that will fund this Relay bridge first.");
+      return;
+    }
+    setMessages((all) =>
+      all.map((item) =>
+        item.id === message.id ? { ...item, submission: "submitting" } : item,
+      ),
+    );
+    try {
+      const quoteResponse = await fetch("/api/relay/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: wallet,
+          amount: quotedCandidate.amount,
+          tokenSymbol: quotedCandidate.tokenSymbol,
+          originChain: quotedCandidate.originChainName,
+        }),
+      });
+      const quoteData: any = await quoteResponse.json();
+      const candidate = quoteData?.quote?.candidate;
+      if (!quoteResponse.ok || !validRelayCandidate(candidate))
+        throw Error(
+          quoteData?.error || "Relay did not return safe transaction steps.",
+        );
+      const chain = {
+        id: candidate.originChainId,
+        name: candidate.originChainName,
+        nativeCurrency: candidate.nativeCurrency,
+        rpcUrls: { default: { http: [candidate.rpcUrl] } },
+      } as const;
+      const client = createPublicClient({
+        chain,
+        transport: http(candidate.rpcUrl),
+      });
+      const hashes: string[] = [];
+      for (const transaction of candidate.transactions) {
+        const hash = await submitWalletTransaction(
+          candidate.originChainId,
+          transaction.to,
+          transaction.data,
+          transaction.value,
+          candidate,
+        );
+        hashes.push(hash);
+        const receipt = await client.waitForTransactionReceipt({
+          hash,
+          timeout: 120_000,
+        });
+        if (receipt.status !== "success")
+          throw Error(`${transaction.step} transaction reverted`);
+      }
+      const lastHash = hashes.at(-1)!;
+      const transactionUrl = candidate.explorerUrl
+        ? `${candidate.explorerUrl.replace(/\/$/, "")}/tx/${lastHash}`
+        : lastHash;
+      setMessages((all) =>
+        all.map((item) =>
+          item.id === message.id
+            ? {
+                ...item,
+                text: `${item.text}\n\nRelay deposit confirmed on ${candidate.originChainName}. Relay is processing delivery to Monad. Source transaction: ${transactionUrl}\nRelay request: ${candidate.requestId}`,
+                submission: "submitted",
+              }
+            : item,
+        ),
+      );
+    } catch (error: any) {
+      const declined =
+        error?.code === 4001 || error?.code === "ACTION_REJECTED";
+      setMessages((all) =>
+        all.map((item) =>
+          item.id === message.id
+            ? {
+                ...item,
+                text: `${item.text}\n\n${declined ? "Wallet confirmation was declined." : "Relay bridge was not fully submitted. Check the source-network balance and request a fresh quote before retrying."}`,
                 submission: "failed",
               }
             : item,
@@ -1055,9 +1214,17 @@ export default function Home() {
                     Review and confirm Uniswap swap
                   </button>
                 )}
+                {m.relayCandidate && !m.submission && (
+                  <button
+                    className="trade-submit"
+                    onClick={() => submitRelay(m)}
+                  >
+                    Review and confirm Relay bridge
+                  </button>
+                )}
                 {m.submission === "submitting" && (
                   <button className="trade-submit" disabled>
-                    {m.kuruCandidate || m.uniswapCandidate
+                    {m.kuruCandidate || m.uniswapCandidate || m.relayCandidate
                       ? "Waiting for wallet…"
                       : "Submitting to PERPL…"}
                   </button>
