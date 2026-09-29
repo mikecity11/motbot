@@ -176,12 +176,14 @@ test("Relay bridge requests accept multiple tokens and networks without claiming
       destinationChain: "Monad",
       impactPercent: -0.5,
       estimatedSeconds: 1,
+      candidate: { requestId: "ready" },
     };
   });
   assert.match(
     reply,
     /2 USDC on Base.*1\.99 USDC on Monad.*not a submitted transaction/,
   );
+  assert.match(reply, /confirm each required transaction/i);
   const ethereum = chatInputSchema.parse({
     message: "Move 0.01 ETH from Ethereum to Monad with Relay",
     wallet: true,
