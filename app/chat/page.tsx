@@ -1035,7 +1035,7 @@ export default function Home() {
     <div className="app-shell">
       <header className="topbar site-topbar">
         <a className="brand" href="/" aria-label="MOTBOT home">
-          <img className="brand-logo" src="/brand/motbot-logo-v1.png" alt=""/>MOTBOT
+          <span className="brandmark">m</span>MOTBOT
           <span className="network">ON MONAD</span>
         </a>
         <nav className="site-nav" aria-label="Main navigation">
