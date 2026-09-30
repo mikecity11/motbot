@@ -14,10 +14,10 @@ const groups:Record<string,string[]>={
 const descriptions:Record<string,string>={
   Perpl:'Trade perpetual markets fully onchain.',Levr:'Sports and prediction markets on Monad.',Kuru:'A Monad-native trading hub and launchpad.',Uniswap:'Swap assets through the largest onchain marketplace.',Dynamic:'Email, social and embedded-wallet onboarding and signing.',Envio:'Fast Monad transaction data and finality through HyperRPC.',Relay:'Swap and bridge assets across chains.',PingMe:'Send stablecoins as simply as sending a message.',OpenSea:'Discover and trade digital collectibles.',Lumiterra:'An AI-powered open-world game.','Collective Memory':'A decentralized memory and social layer.',FastLane:'Alignment-powered liquid staking.',Nadradar:'Explore activity and analytics across Monad.','Noah AI':'Build decentralized apps through conversation.',AnomaPay:'Private payments made easy.',Farcaster:'Discover, create and connect onchain.'
 };
-const next=new Set(['Levr','Kuru','Uniswap','Relay','PingMe','Nadradar','Dynamic','Envio']);
+const next=new Set(['Levr','PingMe','Nadradar']);
 
 export const ecosystemApps:EcosystemApp[]=Object.entries(groups).flatMap(([category,names])=>names.map(name=>({
-  name,category,description:descriptions[name]||`Explore ${name} through the Monad ecosystem.`,status:['Perpl','Kuru','Uniswap','Dynamic'].includes(name)?'integrated':['Relay','Envio'].includes(name)?'data':next.has(name)?'next':'discover'
+  name,category,description:descriptions[name]||`Explore ${name} through the Monad ecosystem.`,status:['Perpl','Kuru','Uniswap','Relay','Dynamic'].includes(name)?'integrated':name==='Envio'?'data':next.has(name)?'next':'discover'
 })));
 
 export const ecosystemCategories=['All',...Object.keys(groups)];
