@@ -33,9 +33,9 @@ export default function BlogPage() {
             </div>
             <h2>Why Monad needs a conversational super-app</h2>
             <p>
-              The next wave of onchain adoption will not come from asking users
-              to master more dashboards. It will come from turning intent into a
-              clear, reviewable action.
+              Why we built one conversational layer for Monad—and how voice,
+              user-controlled execution and an expanding network of integrations
+              make MOTBOT different from another trading interface.
             </p>
             <Link href="/blog/why-monad-needs-a-conversational-super-app">
               Read the story <ArrowUpRight size={16} />
