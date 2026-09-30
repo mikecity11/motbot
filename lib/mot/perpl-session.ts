@@ -1,6 +1,27 @@
-// Browser-only, session-only PERPL testnet authentication and user-confirmed order forwarding.
+// Browser-only, session-only PERPL authentication and user-confirmed order forwarding.
 export const PERPL_TESTNET_CHAIN = 10143;
 export const PERPL_TESTNET_SOCKET = 'wss://testnet.perpl.xyz/ws/v1/trading';
+export const PERPL_MAINNET_CHAIN = 143;
+export const PERPL_MAINNET_SOCKET = 'wss://app.perpl.xyz/ws/v1/trading';
+export type PerplNetwork = 'testnet' | 'mainnet';
+export const PERPL_NETWORKS = {
+  testnet: {
+    chainId: PERPL_TESTNET_CHAIN,
+    label: 'Testnet',
+    socket: PERPL_TESTNET_SOCKET,
+    appUrl: 'https://testnet.perpl.xyz',
+    apiKeysUrl: 'https://testnet.perpl.xyz/apikeys',
+    contextUrl: 'https://testnet.perpl.xyz/api/v1/pub/context',
+  },
+  mainnet: {
+    chainId: PERPL_MAINNET_CHAIN,
+    label: 'Mainnet',
+    socket: PERPL_MAINNET_SOCKET,
+    appUrl: 'https://app.perpl.xyz',
+    apiKeysUrl: 'https://app.perpl.xyz/apikeys',
+    contextUrl: 'https://app.perpl.xyz/api/v1/pub/context',
+  },
+} as const;
 
 export type PerplAccount = {
   id: number;
@@ -35,6 +56,7 @@ type SessionOptions = {
   wallet: string;
   apiKey: string;
   signingKey: CryptoKey;
+  network?: PerplNetwork;
   onState: (state: SessionState) => void;
   socketFactory?: (url: string) => SocketLike;
 };
@@ -56,15 +78,18 @@ export async function importApiSigningKey(secret: string): Promise<CryptoKey> {
   } finally { encoded.fill(0); }
 }
 
-export async function createTestnetSignIn(apiKey: string, signingKey: CryptoKey) {
+export async function createPerplSignIn(apiKey: string, signingKey: CryptoKey, network: PerplNetwork = 'testnet') {
   const token = apiKey.trim();
   if (!token || token.length > 4096 || /\s/.test(token)) throw new Error('Enter the API token provided by PERPL.');
   const timestamp = Date.now().toString();
   const nonce = base64url(crypto.getRandomValues(new Uint8Array(16)));
-  const canonical = [PERPL_TESTNET_CHAIN, 'trading-ws-signin', timestamp, nonce].join('\n');
+  const chainId = PERPL_NETWORKS[network].chainId;
+  const canonical = [chainId, 'trading-ws-signin', timestamp, nonce].join('\n');
   const signature = await crypto.subtle.sign('Ed25519', signingKey, new TextEncoder().encode(canonical));
-  return { mt: 29, chain_id: PERPL_TESTNET_CHAIN, api_key: token, timestamp, nonce, signature: base64url(new Uint8Array(signature)) };
+  return { mt: 29, chain_id: chainId, api_key: token, timestamp, nonce, signature: base64url(new Uint8Array(signature)) };
 }
+
+export const createTestnetSignIn = (apiKey: string, signingKey: CryptoKey) => createPerplSignIn(apiKey, signingKey, 'testnet');
 
 function object(value: unknown): value is Frame { return !!value && typeof value === 'object' && !Array.isArray(value); }
 function positiveId(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0; }
@@ -123,14 +148,16 @@ export class PerplReadOnlySession {
 
   start() {
     if (this.socket || this.ended || !this.options) return;
-    this.emit('connecting', 'Connecting to PERPL testnet. No orders will be sent.');
+    const network = this.options.network ?? 'testnet';
+    const config = PERPL_NETWORKS[network];
+    this.emit('connecting', `Connecting to PERPL ${network}. No orders will be sent.`);
     try {
-      this.socket = (this.options.socketFactory ?? (url => new WebSocket(url)))(PERPL_TESTNET_SOCKET);
+      this.socket = (this.options.socketFactory ?? (url => new WebSocket(url)))(config.socket);
       this.authenticationTimer = setTimeout(() => this.fail('PERPL did not return a verified wallet snapshot. Check the key, connection, and application-origin approval.'), 15000);
       this.socket.onopen = async () => {
         if (!this.options || this.ended) return;
         try {
-          const frame = await createTestnetSignIn(this.options.apiKey, this.options.signingKey);
+          const frame = await createPerplSignIn(this.options.apiKey, this.options.signingKey, network);
           if (this.ended || this.socket?.readyState !== 1) return;
           this.socket.send(JSON.stringify(frame)); // Always the first outbound frame.
         } catch { this.fail('Could not sign in with this API key. No orders were sent.'); }
@@ -140,7 +167,7 @@ export class PerplReadOnlySession {
       this.socket.onclose = event => {
         if (!this.ended) this.fail(event.code === 3401 ? 'PERPL rejected this API key. Check the token, secret, expiry, IP restrictions, and device clock.' : 'PERPL disconnected. Account and forwarding status are no longer verified. Reconnect to check again.');
       };
-    } catch { this.fail('PERPL testnet connection could not start.'); }
+    } catch { this.fail(`PERPL ${network} connection could not start.`); }
   }
 
   private receive(raw: unknown) {
@@ -158,7 +185,8 @@ export class PerplReadOnlySession {
         if (this.authenticationTimer) clearTimeout(this.authenticationTimer);
         this.authenticationTimer = null;
         // Keep the CryptoKey/token only in this in-memory session; no storage or server upload.
-        this.emit('authenticated', 'API authentication verified. A trade-scoped key can submit testnet orders after your explicit confirmation.');
+        const network = this.options.network ?? 'testnet';
+        this.emit('authenticated', `API authentication verified for PERPL ${network}. A trade-scoped key can submit ${network} orders after your explicit confirmation.`);
         if (!this.keepAlive) this.keepAlive = setInterval(() => {
           if (!this.ended && this.socket?.readyState === 1) {
             try { this.socket.send(JSON.stringify({ mt: 1, t: Date.now() })); } catch { this.fail('PERPL connection interrupted.'); }

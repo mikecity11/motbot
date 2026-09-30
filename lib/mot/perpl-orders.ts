@@ -52,7 +52,7 @@ export function planMarketOrders(args: {
   if (!Number.isFinite(trade.marginUSD) || trade.marginUSD <= 0 || !Number.isFinite(trade.leverage) || trade.leverage <= 0) throw new Error('Margin and leverage must be positive.');
   const leverageHundredths = Math.round(trade.leverage * 100);
   const maxLeverageHundredths = Math.floor(1_000_000 / market.initialMargin);
-  if (leverageHundredths > maxLeverageHundredths) throw new Error(`${market.symbol} currently allows at most ${(maxLeverageHundredths / 100).toFixed(2)}x leverage on PERPL testnet.`);
+  if (leverageHundredths > maxLeverageHundredths) throw new Error(`${market.symbol} currently allows at most ${(maxLeverageHundredths / 100).toFixed(2)}x leverage on the selected PERPL network.`);
   const mark = market.markPriceScaled / 10 ** market.priceDecimals;
   const size = Math.floor((trade.marginUSD * trade.leverage / mark) * 10 ** market.sizeDecimals);
   if (!safePositive(size)) throw new Error(`This order is too small for ${market.symbol}'s current size precision.`);

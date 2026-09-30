@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { importApiSigningKey, createTestnetSignIn, decodeAccount, decodeWalletSnapshot, PerplReadOnlySession, PERPL_TESTNET_SOCKET } from '../lib/mot/perpl-session.ts';
+import { importApiSigningKey, createPerplSignIn, createTestnetSignIn, decodeAccount, decodeWalletSnapshot, PerplReadOnlySession, PERPL_MAINNET_SOCKET, PERPL_TESTNET_SOCKET } from '../lib/mot/perpl-session.ts';
 
 // Public RFC 8032 vector, never a real wallet/API credential.
 const seed = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
@@ -39,6 +39,18 @@ test('imports a non-extractable Ed25519 key and verifies canonical sign-in', asy
   assert.equal(await crypto.subtle.verify('Ed25519', verifier, Buffer.from(frame.signature, 'base64url'), new TextEncoder().encode([10143, 'trading-ws-signin', frame.timestamp, frame.nonce].join('\n'))), true);
   const next = await createTestnetSignIn('test-token', key);
   assert.notEqual(next.nonce, frame.nonce);
+});
+
+test('mainnet authentication uses the mainnet chain and socket', async t => {
+  const key = await importApiSigningKey(seed);
+  const frame = await createPerplSignIn('mainnet-token', key, 'mainnet');
+  assert.equal(frame.chain_id, 143);
+  const socket = new FakeSocket();
+  const session = new PerplReadOnlySession({ wallet, apiKey: 'mainnet-token', signingKey: key, network: 'mainnet', socketFactory: url => { assert.equal(url, PERPL_MAINNET_SOCKET); return socket; }, onState: () => {} });
+  t.after(() => session.disconnect());
+  session.start();
+  await socket.onopen();
+  assert.equal(socket.frames[0].chain_id, 143);
 });
 
 test('rejects malformed secrets and tokens without opening a connection', async () => {

@@ -205,6 +205,25 @@
   padding-top: 20px;
   border-top: 1px solid #353044;
 }
+.perpl-network-picker {
+  display: block;
+  margin: 12px 0 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.perpl-setup > select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  padding: 10px;
+}
+.perpl-mainnet-warning {
+  border-left: 3px solid #ffb86b;
+  padding-left: 10px;
+  color: #ffd7a6;
+}
 .perpl-auth h3 {
   font-size: 15px;
   font-weight: 600;

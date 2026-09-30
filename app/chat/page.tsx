@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { PerplPosition } from "@/lib/mot/perpl-session";
+import type { PerplNetwork, PerplPosition } from "@/lib/mot/perpl-session";
 import { useMotWallet } from "@/components/dynamic-wallet-provider";
 import { createPublicClient, http } from "viem";
 type TradeCandidate = {
@@ -147,7 +147,7 @@ const messageId = () => crypto.randomUUID();
 const initial: Message = {
   id: "welcome",
   role: "mot",
-  text: "Hey, I’m MOT. Ask about a market or tell me what you want to do across Monad. You can type or use your voice. PERPL testnet orders, wallet-confirmed swaps, and Relay bridges to Monad are available.",
+  text: "Hey, I’m MOT. Ask about a market or tell me what you want to do across Monad. You can type or use your voice. PERPL testnet and mainnet orders, wallet-confirmed swaps, and Relay bridges to Monad are available.",
 };
 const defaults = {
   slOn: true,
@@ -200,8 +200,9 @@ export default function Home() {
   const [kuruError, setKuruError] = useState("");
   const [perpl, setPerpl] = useState<{
     verified: boolean;
+    network: PerplNetwork;
     positions: PerplPosition[];
-  }>({ verified: false, positions: [] });
+  }>({ verified: false, network: "testnet", positions: [] });
   const end = useRef<HTMLDivElement>(null);
   const walletMenuRef = useRef<HTMLDivElement>(null);
   const recognition = useRef<any>(null);
@@ -449,7 +450,7 @@ export default function Home() {
     try {
       if (dynamicWallet.address) await dynamicWallet.disconnect();
       setWallet("");
-      setPerpl({ verified: false, positions: [] });
+      setPerpl({ verified: false, network: "testnet", positions: [] });
       setNotice(
         dynamicWallet.address
           ? "Wallet disconnected from MOTBOT."
@@ -614,6 +615,7 @@ export default function Home() {
           aiConsent: true,
           perpl: {
             verified: perpl.verified,
+            network: perpl.network,
             positions: perpl.positions.map(
               ({
                 marketId,
@@ -710,7 +712,7 @@ export default function Home() {
       setBusy(false);
     }
   }
-  function submitTestnet(message: Message) {
+  function submitPerpl(message: Message) {
     if (
       !message.tradeCandidate ||
       !message.tradePreferences ||
@@ -724,7 +726,7 @@ export default function Home() {
           item.id === message.id
             ? {
                 ...item,
-                text: `${item.text}\n\nConnect the same testnet wallet and its PERPL API session before submitting.`,
+                text: `${item.text}\n\nConnect the same wallet and its PERPL ${perpl.network} API session before submitting.`,
                 submission: "failed",
               }
             : item,
@@ -738,7 +740,7 @@ export default function Home() {
       ),
     );
     window.dispatchEvent(
-      new CustomEvent("mot:submit-testnet-order", {
+      new CustomEvent("mot:submit-perpl-order", {
         detail: {
           id: message.id,
           trade: message.tradeCandidate,
@@ -989,9 +991,9 @@ export default function Home() {
         ),
       );
     };
-    window.addEventListener("mot:testnet-order-result", receive);
+    window.addEventListener("mot:perpl-order-result", receive);
     return () =>
-      window.removeEventListener("mot:testnet-order-result", receive);
+      window.removeEventListener("mot:perpl-order-result", receive);
   }, []);
   useEffect(() => {
     const c = (document as any).modelContext;
@@ -1193,9 +1195,9 @@ export default function Home() {
                 {m.tradeCandidate && !m.submission && (
                   <button
                     className="trade-submit"
-                    onClick={() => submitTestnet(m)}
+                    onClick={() => submitPerpl(m)}
                   >
-                    Submit this testnet order
+                    Submit this {perpl.network} order
                   </button>
                 )}
                 {m.kuruCandidate && !m.submission && (
@@ -1426,7 +1428,7 @@ export default function Home() {
               <Wallet size={25} />
               <h3>Live PERPL updates</h3>
               <p>
-                Connect the testnet API session above. Open positions will
+                Connect a PERPL API session above. Open positions will
                 appear in its live position card.
               </p>
             </div>
