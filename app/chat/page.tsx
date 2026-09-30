@@ -1043,6 +1043,7 @@ export default function Home() {
           <a href="/chat">Talk to MOT</a>
           <a href="/about">About</a>
           <a href="/roadmap">Roadmap</a>
+          <a href="/blog">Blog</a>
         </nav>
         <div className="wallet-menu-wrap" ref={walletMenuRef}>
           {wallet ? (
