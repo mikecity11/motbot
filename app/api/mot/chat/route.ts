@@ -32,6 +32,11 @@ import {
   sessionHash,
 } from "@/lib/mot/ai-storage";
 import { envioConfigured } from "@/lib/mot/envio";
+import {
+  asksWalletBalance,
+  getMonadWalletBalances,
+  walletBalanceReply,
+} from "@/lib/mot/wallet-balances";
 export const maxDuration = 60;
 const response = (reply: string, mode = "preview", status = 200, extra = {}) =>
   NextResponse.json(
@@ -95,6 +100,28 @@ export async function POST(request: Request) {
       "preview",
       400,
     );
+  if (asksWalletBalance(input.message)) {
+    if (!input.walletAddress)
+      return response(
+        "Connect your wallet first so MOT can read its public balances on Monad. No approval or signature is required.",
+        "wallet_balances",
+      );
+    try {
+      const balances = await getMonadWalletBalances(input.walletAddress);
+      return response(
+        walletBalanceReply(input.message, balances),
+        "wallet_balances",
+        200,
+        { walletBalances: balances },
+      );
+    } catch {
+      return response(
+        "Monad wallet balances are temporarily unavailable. No balance was estimated.",
+        "wallet_balances",
+        503,
+      );
+    }
+  }
   const uniswapSwap = parseUniswapSwap(input.message);
   if (uniswapSwap) {
     if (!input.walletAddress)

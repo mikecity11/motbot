@@ -94,6 +94,15 @@ type RelayCandidate = {
     value: string;
   }>;
 };
+type WalletBalance = {
+  symbol: string;
+  name: string;
+  address: string;
+  decimals: number;
+  formatted: string;
+  value: number;
+  native: boolean;
+};
 function validRelayCandidate(value: any): value is RelayCandidate {
   return Boolean(
     value &&
@@ -195,6 +204,8 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [wallet, setWallet] = useState("");
   const [walletMenu, setWalletMenu] = useState(false);
+  const [walletBalances, setWalletBalances] = useState<WalletBalance[]>([]);
+  const [walletBalanceError, setWalletBalanceError] = useState("");
   const [notice, setNotice] = useState("");
   const [settings, setSettings] = useState(false);
   const [coming, setComing] = useState("");
@@ -259,6 +270,37 @@ export default function Home() {
     provider.on?.("accountsChanged", changed);
     return () => provider.removeListener?.("accountsChanged", changed);
   }, [dynamicWallet.address]);
+  useEffect(() => {
+    if (!wallet) {
+      setWalletBalances([]);
+      setWalletBalanceError("");
+      return;
+    }
+    let active = true;
+    async function fetchBalances() {
+      try {
+        const response = await fetch(
+          `/api/wallet/balances?address=${encodeURIComponent(wallet)}`,
+          { cache: "no-store" },
+        );
+        const data: any = await response.json();
+        if (!response.ok || !Array.isArray(data.balances))
+          throw Error(data.error);
+        if (active) {
+          setWalletBalances(data.balances);
+          setWalletBalanceError("");
+        }
+      } catch {
+        if (active) setWalletBalanceError("Balances temporarily unavailable.");
+      }
+    }
+    fetchBalances();
+    const timer = setInterval(fetchBalances, 20000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [wallet]);
   useEffect(() => {
     if (!loaded) return;
     setHistoryLoaded(false);
@@ -1413,6 +1455,39 @@ export default function Home() {
               </span>
             </div>
           </div>
+          <div className="panel-title integration-panel-title">
+            WALLET BALANCES <span>MONAD</span>
+          </div>
+          {!wallet ? (
+            <p className="muted">Connect a wallet to detect its Monad assets.</p>
+          ) : walletBalanceError ? (
+            <p className="muted">{walletBalanceError}</p>
+          ) : walletBalances.length ? (
+            <div className="wallet-balances">
+              {walletBalances
+                .filter((balance) => balance.native || balance.value > 0)
+                .slice(0, 8)
+                .map((balance) => (
+                  <button
+                    className="market-row"
+                    key={balance.address}
+                    onClick={() => send(`What is my ${balance.symbol} balance?`)}
+                  >
+                    <span>
+                      {balance.symbol}
+                      <small>{balance.name}</small>
+                    </span>
+                    <strong>
+                      {Number(balance.formatted).toLocaleString(undefined, {
+                        maximumFractionDigits: 6,
+                      })}
+                    </strong>
+                  </button>
+                ))}
+            </div>
+          ) : (
+            <p className="muted">Checking Monad balances…</p>
+          )}
           <div className="panel-title integration-panel-title">
             KURU ORDER BOOK <span>SWAPS LIVE</span>
           </div>

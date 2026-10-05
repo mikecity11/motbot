@@ -60,6 +60,9 @@
   text-align: right;
   color: #aaa3bd;
 }
+.wallet-balances {
+  display: grid;
+}
 /* Product-site presentation */
 .ai-status {
   padding: 12px 0;
