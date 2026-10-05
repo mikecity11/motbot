@@ -107,8 +107,11 @@ export async function POST(request: Request) {
         input.walletAddress as `0x${string}`,
         uniswapSwap,
       );
+      const summary=candidate.direction==='MON_TO_USDC'
+        ? `${candidate.amountInMon.toLocaleString()} MON → approximately ${candidate.expectedOutUsdc.toFixed(6)} USDC. Minimum received: ${candidate.minimumOutUsdc.toFixed(6)} USDC`
+        : `${candidate.amountInUsdc.toLocaleString()} USDC → approximately ${candidate.expectedOutMon.toFixed(6)} MON. Minimum received: ${candidate.minimumOutMon.toFixed(6)} MON. This direction requires one exact USDC approval followed by the swap`;
       return response(
-        `Uniswap swap ready: ${candidate.amountInMon.toLocaleString()} MON → approximately ${candidate.expectedOutUsdc.toFixed(6)} USDC. Minimum received: ${candidate.minimumOutUsdc.toFixed(6)} USDC with ${(candidate.slippageBps / 100).toFixed(2)}% slippage. This quote expires in 10 minutes. Review and confirm in your wallet; this uses Monad mainnet and real funds.`,
+        `Uniswap swap ready: ${summary} with ${(candidate.slippageBps / 100).toFixed(2)}% slippage. This quote expires in 10 minutes. Review and confirm in your wallet; this uses Monad mainnet and real funds.`,
         "uniswap_swap",
         200,
         { uniswapCandidate: candidate },

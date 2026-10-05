@@ -60,14 +60,22 @@ type KuruSwapCandidate = {
 type UniswapSwapCandidate = {
   chainId: 143;
   routerAddress: string;
-  direction: "MON_TO_USDC";
-  amountInMon: number;
-  expectedOutUsdc: number;
-  minimumOutUsdc: number;
+  direction: "MON_TO_USDC" | "USDC_TO_MON";
+  amountInMon?: number;
+  expectedOutUsdc?: number;
+  minimumOutUsdc?: number;
+  amountInUsdc?: number;
+  expectedOutMon?: number;
+  minimumOutMon?: number;
   slippageBps: number;
   expiresAt: number;
   data: `0x${string}`;
   value: `0x${string}`;
+  approval?: {
+    tokenAddress: string;
+    data: `0x${string}`;
+    value: "0x0";
+  };
 };
 type RelayCandidate = {
   requestId: string;
@@ -661,12 +669,24 @@ export default function Home() {
       const uniswapCandidate =
         d.uniswapCandidate &&
         d.uniswapCandidate.chainId === 143 &&
-        d.uniswapCandidate.direction === "MON_TO_USDC" &&
+        ["MON_TO_USDC", "USDC_TO_MON"].includes(
+          d.uniswapCandidate.direction,
+        ) &&
         /^0x[a-fA-F0-9]{40}$/.test(d.uniswapCandidate.routerAddress) &&
         /^0x[a-fA-F0-9]+$/.test(d.uniswapCandidate.data) &&
         /^0x[a-fA-F0-9]+$/.test(d.uniswapCandidate.value) &&
-        Number.isFinite(d.uniswapCandidate.amountInMon) &&
-        Number.isFinite(d.uniswapCandidate.minimumOutUsdc) &&
+        (d.uniswapCandidate.direction === "MON_TO_USDC"
+          ? Number.isFinite(d.uniswapCandidate.amountInMon) &&
+            Number.isFinite(d.uniswapCandidate.minimumOutUsdc)
+          : Number.isFinite(d.uniswapCandidate.amountInUsdc) &&
+            Number.isFinite(d.uniswapCandidate.minimumOutMon) &&
+            /^0x[a-fA-F0-9]{40}$/.test(
+              d.uniswapCandidate.approval?.tokenAddress || "",
+            ) &&
+            /^0x[a-fA-F0-9]+$/.test(
+              d.uniswapCandidate.approval?.data || "",
+            ) &&
+            d.uniswapCandidate.approval?.value === "0x0") &&
         Number.isInteger(d.uniswapCandidate.expiresAt)
           ? d.uniswapCandidate
           : undefined;
@@ -823,7 +843,12 @@ export default function Home() {
     if (
       candidate.routerAddress.toLowerCase() !==
         "0x4b2ab38dbf28d31d467aa8993f6c2585981d6804" ||
-      !candidate.data.startsWith("0x7ff36ab5")
+      (candidate.direction === "MON_TO_USDC"
+        ? !candidate.data.startsWith("0x7ff36ab5")
+        : !candidate.data.startsWith("0x18cbafe5") ||
+          candidate.approval?.tokenAddress.toLowerCase() !==
+            "0x754704bc059f8c67012fed69bc8a327a5aafb603" ||
+          !candidate.approval.data.startsWith("0x095ea7b3"))
     ) {
       setNotice("MOT rejected unexpected Uniswap transaction data.");
       return;
@@ -848,6 +873,25 @@ export default function Home() {
       ),
     );
     try {
+      if (candidate.direction === "USDC_TO_MON" && candidate.approval) {
+        const approvalHash = await submitWalletTransaction(
+          143,
+          candidate.approval.tokenAddress as `0x${string}`,
+          candidate.approval.data,
+          candidate.approval.value,
+        );
+        setMessages((all) =>
+          all.map((item) =>
+            item.id === message.id
+              ? {
+                  ...item,
+                  text: `${item.text}\n\nUSDC approval submitted: https://monadscan.com/tx/${approvalHash}\nConfirm the second wallet request to complete the swap.`,
+                }
+              : item,
+          ),
+        );
+        void trackWithEnvio(message.id, approvalHash, "Uniswap approval");
+      }
       const hash = await submitWalletTransaction(
         143,
         candidate.routerAddress as `0x${string}`,
@@ -873,7 +917,7 @@ export default function Home() {
           item.id === message.id
             ? {
                 ...item,
-                text: `${item.text}\n\n${declined ? "Wallet confirmation was declined." : "Uniswap swap was not submitted. Check your MON balance and request a fresh quote."}`,
+                text: `${item.text}\n\n${declined ? "Wallet confirmation was declined." : `Uniswap swap was not submitted. Check your ${candidate.direction === "USDC_TO_MON" ? "USDC and MON gas" : "MON"} balance and request a fresh quote.`}`,
                 submission: "failed",
               }
             : item,
