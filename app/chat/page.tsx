@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import type { PerplNetwork, PerplPosition } from "@/lib/mot/perpl-session";
 import { useMotWallet } from "@/components/dynamic-wallet-provider";
+import { walletSubmissionError } from "@/lib/mot/wallet-error";
 import { createPublicClient, http } from "viem";
 type TradeCandidate = {
   market: string;
@@ -952,14 +953,13 @@ export default function Home() {
         ),
       );
       void trackWithEnvio(message.id, hash, "Uniswap");
-    } catch (error: any) {
-      const declined = error?.code === 4001;
+    } catch (error: unknown) {
       setMessages((all) =>
         all.map((item) =>
           item.id === message.id
             ? {
                 ...item,
-                text: `${item.text}\n\n${declined ? "Wallet confirmation was declined." : `Uniswap swap was not submitted. Check your ${candidate.direction === "USDC_TO_MON" ? "USDC and MON gas" : "MON"} balance and request a fresh quote.`}`,
+                text: `${item.text}\n\n${walletSubmissionError(error)}`,
                 submission: "failed",
               }
             : item,

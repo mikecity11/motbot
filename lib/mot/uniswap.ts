@@ -43,6 +43,7 @@ export async function prepareUniswapMonSell(walletAddress:`0x${string}`,request:
  const expectedOut=amounts[amounts.length-1];if(!expectedOut||expectedOut<=0)throw Error('Uniswap did not return a valid route.');
  const minimumOut=(expectedOut*BigInt(10000-request.slippageBps))/BigInt(10000);const expiresAt=Math.floor(Date.now()/1000)+600;
  const data=encodeFunctionData({abi:routerAbi,functionName:'swapExactETHForTokens',args:[minimumOut,[...path],walletAddress,BigInt(expiresAt)]});
+ await client.estimateGas({account:walletAddress,to:UNISWAP_V2_ROUTER,data,value:amountIn});
  return {chainId:143,routerAddress:UNISWAP_V2_ROUTER,direction:'MON_TO_USDC',amountInMon:request.amountMon,expectedOutUsdc:Number(formatUnits(expectedOut,6)),minimumOutUsdc:Number(formatUnits(minimumOut,6)),slippageBps:request.slippageBps,expiresAt,data,value:`0x${amountIn.toString(16)}`};
 }
 

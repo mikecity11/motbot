@@ -10,6 +10,7 @@ import {
 import {
   DynamicContextProvider,
   useDynamicContext,
+  type EvmNetwork,
 } from "@dynamic-labs/sdk-react-core";
 import { EthereumWalletConnectors } from "@dynamic-labs/ethereum";
 
@@ -38,6 +39,26 @@ const unavailable: MotWalletContextValue = {
   },
 };
 const MotWalletContext = createContext<MotWalletContextValue>(unavailable);
+
+const monadMainnet: EvmNetwork = {
+  chainId: 143,
+  networkId: 143,
+  name: "Monad Mainnet",
+  vanityName: "Monad",
+  iconUrls: [],
+  nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
+  rpcUrls: ["https://rpc.monad.xyz"],
+  blockExplorerUrls: ["https://monadscan.com"],
+};
+
+type DashboardEvmNetwork = Omit<EvmNetwork, "chainId"> & {
+  chainId: number | string;
+};
+
+const includeMonadMainnet = (networks: DashboardEvmNetwork[]) => [
+  ...networks.filter((network) => Number(network.chainId) !== 143),
+  monadMainnet,
+];
 
 function DynamicWalletBridge({ children }: { children: ReactNode }) {
   const { primaryWallet, setShowAuthFlow, handleLogOut } = useDynamicContext();
@@ -100,6 +121,7 @@ export function MotWalletProvider({ children }: { children: ReactNode }) {
         appName: "MOTBOT",
         walletConnectors: [EthereumWalletConnectors],
         initialAuthenticationMode: "connect-and-sign",
+        overrides: { evmNetworks: includeMonadMainnet },
         siweStatement:
           "Sign in to use MOTBOT across Monad. Every on-chain action still requires your confirmation.",
       }}
