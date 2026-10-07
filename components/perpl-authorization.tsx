@@ -42,9 +42,9 @@ export function PerplAuthorization({ wallet, chain, network, onSessionChange }: 
         const admissions = await session.current.submitOrders(orders);
         const rejected = admissions.find(item => !item.accepted);
         if (rejected) throw new Error(rejected.code === 403 ? 'PERPL rejected this API key because it does not have trade scope.' : `PERPL rejected part of the instruction: ${rejected.error || `code ${rejected.code}`}. Check the account on PERPL before trying again.`);
-        const filled = admissions.some(item => item.evidence === 'position');
+        const filled = admissions[0]?.evidence === 'position';
         const forwarded = admissions.some(item => item.evidence === 'forwarded' || item.evidence === 'order');
-        reply(true, filled ? `PERPL confirmed the resulting position. The ${network} trade is open.` : forwarded ? `${orders.length} ${network} order${orders.length === 1 ? '' : 's'} reached PERPL. Final fill confirmation may arrive separately; check the live position panel before sending another instruction.` : `${orders.length} ${network} order${orders.length === 1 ? '' : 's'} accepted for forwarding by PERPL. Acceptance is not proof of a fill; wait for the live position update.`);
+        reply(true, filled ? `PERPL confirmed the resulting position. The ${network} trade is open.` : forwarded ? `${network} request submitted. ${admissions.map(item => item.error).join(' ')} An open position is not yet confirmed; check PERPL ${network} Order History and Positions before sending another instruction.` : `${orders.length} ${network} order${orders.length === 1 ? '' : 's'} accepted for forwarding by PERPL. Acceptance is not proof of a fill; wait for the live position update.`);
       } catch (error) { reply(false, `${error instanceof Error ? error.message : `The ${network} instruction could not be submitted.`} Do not retry automatically; check the live position panel or PERPL first.`); }
     }
     window.addEventListener('mot:submit-perpl-order', submit);

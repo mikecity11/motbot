@@ -100,7 +100,17 @@ test('submits only explicitly supplied frames and correlates command admission',
   const pending = session.submitOrders([order]);
   assert.deepEqual(socket.frames.at(-1), order);
   socket.receive({ mt: 3, sid: 100, cid, status: { code: 0, error: '' } });
-  assert.deepEqual(await pending, [{ correlationId: cid, accepted: true, code: 0, error: '', evidence: 'admission' }]);
+  let settled = false;
+  pending.then(() => { settled = true; });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  socket.receive({ mt: 21, ...account, lfr: 9 });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  socket.receive({ mt: 24, d: [{ acc: 1, rq: 9, st: 7, sr: 36, fr: 1 }] });
+  const result = (await pending)[0];
+  assert.equal(result.accepted, false);
+  assert.match(result.error, /insufficient collateral/);
   assert.equal(session.nextRequestId(1), 10);
 });
 
@@ -184,4 +194,13 @@ test('disconnect during signing prevents a late authentication frame', async t =
   t.after(() => session.disconnect());
   session.start(); const pending = socket.onopen(); session.disconnect(); await pending;
   assert.deepEqual(socket.frames, []); assert.equal(socket.closed, true);
+});
+
+for (const status of [5, 6]) test(`unfilled terminal status ${status} is not accepted as a successful order`, async t => {
+  const { socket, session } = await fixture(t);
+  socket.receive(snapshot);
+  const cid = session.nextCorrelationId();
+  const pending = session.submitOrders([{ mt: 22, sn: cid, rq: 1, acc: 1 }]);
+  socket.receive({ mt: 24, d: [{ acc: 1, rq: 1, st: status, fs: 0, sr: 14 }] });
+  assert.equal((await pending)[0].accepted, false);
 });

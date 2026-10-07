@@ -201,7 +201,7 @@ export class PerplReadOnlySession {
         if (index < 0) throw new Error('Unexpected account');
         this.accounts = this.accounts.map((item, i) => i === index ? account : item);
         this.emit('authenticated', 'Account status updated.');
-        this.resolveForwarded(account);
+        // Forwarding is transport evidence, not the order outcome. Keep waiting for mt:24.
       } else if ((frame.mt === 26 || frame.mt === 27) && this.authenticated) {
         if (!Array.isArray(frame.d)) throw new Error('Invalid position stream.');
         const updates = frame.d.map(decodePosition);
@@ -211,14 +211,21 @@ export class PerplReadOnlySession {
           if (position.status === 1) {
             if (index < 0) this.positions.push(position); else this.positions[index] = position;
           } else if (index >= 0) this.positions.splice(index, 1);
-          this.resolveRequest(position.requestId, position.accountId, true, 'position', 'Position update received from PERPL.');
+          if (position.status === 1 && position.size > 0) this.resolveRequest(position.requestId, position.accountId, true, 'position', 'Open position update received from PERPL.');
         }
         this.emit('authenticated', frame.mt === 26 ? 'Open positions loaded from PERPL.' : 'Position status updated by PERPL.');
       } else if (frame.mt === 24 && this.authenticated) {
         if (!Array.isArray(frame.d)) throw new Error('Invalid order stream.');
         for (const order of frame.d) if (object(order) && positiveId(order.rq) && positiveId(order.acc)) {
-          const failed = order.st === 7;
-          this.resolveRequest(order.rq, order.acc, !failed, 'order', failed ? `PERPL rejected the order${typeof order.sr === 'number' ? ` (reason ${order.sr})` : ''}.` : 'Order update received from PERPL.');
+          const filled = typeof order.fs === 'number' && order.fs > 0;
+          const failed = order.st === 7 || (!filled && (order.st === 5 || order.st === 6));
+          const terminal = failed || filled || order.st === 4 || order.st === 8;
+          if (!terminal) continue;
+          const reasons: Record<number, string> = { 1: 'insufficient available balance', 14: 'execution block expired', 15: 'forwarding reverted', 17: 'order below minimum size', 20: 'invalid expiry block', 32: 'request ID too low', 34: 'order forwarding not allowed', 36: 'order posting failed', 40: 'price outside allowed range', 42: 'size outside allowed range', 44: 'taker settlement failed' };
+          const failures: Record<number, string> = { 1: 'insufficient collateral or fees', 2: 'insufficient collateral to increase position', 3: 'insufficient collateral to invert position', 4: 'no position to close', 7: 'reference price stale', 8: 'negative PnL collateralization limit exceeded' };
+          const reason = typeof order.sr === 'number' ? reasons[order.sr] ?? `reason ${order.sr}` : 'reason unavailable';
+          const failure = typeof order.fr === 'number' ? `; ${failures[order.fr] ?? `failure ${order.fr}`}` : '';
+          this.resolveRequest(order.rq, order.acc, !failed, 'order', failed ? `PERPL ${order.st === 6 ? 'expired' : order.st === 5 ? 'canceled without a fill' : 'rejected'} request #${order.rq}: ${reason}${failure}.` : `PERPL reported ${order.st === 8 ? 'a waiting protection order' : 'a fill'} for request #${order.rq}.`);
         }
       } else if (frame.mt === 100 && this.authenticated) {
         if (typeof frame.sn !== 'number' || frame.sn !== this.lastSequence! + 1) throw new Error('Sequence gap');
@@ -227,8 +234,11 @@ export class PerplReadOnlySession {
         const cid = frame.cid;
         const pending = typeof cid === 'number' ? this.pending.get(cid) : undefined;
         if (typeof cid === 'number' && pending && object(frame.status) && typeof frame.status.code === 'number' && typeof frame.status.error === 'string') {
-          clearTimeout(pending.timer); this.pending.delete(cid);
-          pending.resolve({ correlationId: cid, accepted: frame.status.code === 0, code: frame.status.code, error: frame.status.error, evidence: 'admission' });
+          if (frame.status.code !== 0) {
+            clearTimeout(pending.timer); this.pending.delete(cid);
+            pending.resolve({ correlationId: cid, accepted: false, code: frame.status.code, error: frame.status.error, evidence: 'admission' });
+          }
+          // code 0 only means gateway admission; await the exchange outcome.
         }
       }
     } catch { this.fail('Wallet verification failed or account updates were incomplete. Disconnecting safely; no orders were sent.'); }
@@ -277,13 +287,6 @@ export class PerplReadOnlySession {
       item.resolve({ correlationId: cid, accepted, code: accepted ? 0 : 409, error, evidence });
     }
   }
-  private resolveForwarded(account: PerplAccount) {
-    for (const [cid, item] of this.pending) if (item.accountId === account.id && account.lastForwardedRequestId >= item.requestId) {
-      clearTimeout(item.timer); this.pending.delete(cid);
-      item.resolve({ correlationId: cid, accepted: true, code: 0, error: 'PERPL forwarded the request.', evidence: 'forwarded' });
-    }
-  }
-
   private emit(status: SessionState['status'], message: string) { this.options?.onState({ status, accounts: status === 'authenticated' ? [...this.accounts] : [], positions: status === 'authenticated' ? [...this.positions] : [], message }); }
   private fail(message: string) { if (this.ended) return; this.emit('error', message); this.dispose(); }
 
@@ -294,7 +297,7 @@ export class PerplReadOnlySession {
     if (this.authenticationTimer) clearTimeout(this.authenticationTimer);
     if (this.keepAlive) clearInterval(this.keepAlive);
     if (this.freshnessTimer) clearInterval(this.freshnessTimer);
-    for (const item of this.pending.values()) clearTimeout(item.timer);
+    for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(new Error('PERPL disconnected before the order outcome was confirmed. Check PERPL before retrying.')); }
     this.pending.clear();
     this.requestCounters.clear();
     if (this.socket) {
