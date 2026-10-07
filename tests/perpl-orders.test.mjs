@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeTradingContext, planMarketOrders } from '../lib/mot/perpl-orders.ts';
+import { assertMarketLiquidity, decodeTradingContext, planMarketOrders } from '../lib/mot/perpl-orders.ts';
 
 const rawContext = { chain: { gas: { h: 1000 } }, markets: [{
   id: 16, symbol: 'BTC', order_ttl_blocks: 20, order_max_market_slippage_bps: 1000,
@@ -28,4 +28,17 @@ test('uses both protections and rejects leverage above the live market maximum',
   const orders = planMarketOrders(base);
   assert.equal(orders.length, 3); assert.equal(orders[1].tpc, 4); assert.equal(orders[2].tpc, 3);
   assert.throws(() => planMarketOrders({ ...base, trade: { ...base.trade, leverage: 10 } }), /at most 6.66x/);
+});
+
+
+test('liquidity preflight checks the correct side and preserves slippage limits', () => {
+  const { head, markets: [market] } = decodeTradingContext(rawContext);
+  const opening = planMarketOrders({ trade: { market: 'BTC', side: 'long', marginUSD: 5, leverage: 3 }, preferences: { slOn: false, sl: 50, tpOn: false, tp: 100 }, market, accountId: 1, firstRequestId: 1, firstCorrelationId: 1, head })[0];
+  assert.doesNotThrow(() => assertMarketLiquidity({ ask: [{ p: 900100, s: opening.s, o: 1 }], bid: [] }, opening, market));
+  assert.throws(() => assertMarketLiquidity({ ask: [], bid: [{ p: 900000, s: 100, o: 1 }] }, opening, market), /insufficient BTC liquidity/);
+  assert.throws(() => assertMarketLiquidity({ ask: [{ p: 910000, s: 100, o: 1 }] }, opening, market), /0.50%/);
+  assert.throws(() => assertMarketLiquidity({ ask: [{ p: 900000, s: opening.s - 1, o: 1 }] }, opening, market), /No order was submitted/);
+  const short = { ...opening, t: 2 };
+  assert.doesNotThrow(() => assertMarketLiquidity({ bid: [{ p: 899900, s: short.s, o: 1 }] }, short, market));
+  assert.throws(() => assertMarketLiquidity({ bid: [{ p: 890000, s: 100, o: 1 }] }, short, market), /insufficient/);
 });

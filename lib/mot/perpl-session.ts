@@ -221,7 +221,7 @@ export class PerplReadOnlySession {
           const failed = order.st === 7 || (!filled && (order.st === 5 || order.st === 6));
           const terminal = failed || filled || order.st === 4 || order.st === 8;
           if (!terminal) continue;
-          const reasons: Record<number, string> = { 1: 'insufficient available balance', 14: 'execution block expired', 15: 'forwarding reverted', 17: 'order below minimum size', 20: 'invalid expiry block', 32: 'request ID too low', 34: 'order forwarding not allowed', 36: 'order posting failed', 40: 'price outside allowed range', 42: 'size outside allowed range', 44: 'taker settlement failed' };
+          const reasons: Record<number, string> = { 1: 'insufficient available balance', 14: 'execution block expired', 15: 'forwarding reverted', 16: 'immediate-or-cancel completed; remaining size canceled (available liquidity or execution limits prevented a full fill)', 17: 'order below minimum size', 20: 'invalid expiry block', 32: 'request ID too low', 34: 'order forwarding not allowed', 36: 'order posting failed', 40: 'price outside allowed range', 42: 'size outside allowed range', 44: 'taker settlement failed' };
           const failures: Record<number, string> = { 1: 'insufficient collateral or fees', 2: 'insufficient collateral to increase position', 3: 'insufficient collateral to invert position', 4: 'no position to close', 7: 'reference price stale', 8: 'negative PnL collateralization limit exceeded' };
           const reason = typeof order.sr === 'number' ? reasons[order.sr] ?? `reason ${order.sr}` : 'reason unavailable';
           const failure = typeof order.fr === 'number' ? `; ${failures[order.fr] ?? `failure ${order.fr}`}` : '';

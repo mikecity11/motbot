@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { importApiSigningKey, PERPL_NETWORKS, PerplReadOnlySession, type PerplNetwork, type PerplPosition, type SessionState } from '@/lib/mot/perpl-session';
-import { decodeTradingContext, planMarketOrders, type ProtectionPreferences, type TradeCandidate } from '@/lib/mot/perpl-orders';
+import { assertMarketLiquidity, decodeTradingContext, planMarketOrders, type ProtectionPreferences, type TradeCandidate } from '@/lib/mot/perpl-orders';
 
 type SubmitDetail = { id: string; trade: TradeCandidate; preferences: ProtectionPreferences };
 
@@ -39,6 +39,10 @@ export function PerplAuthorization({ wallet, chain, network, onSessionChange }: 
         const firstRq = session.current.nextRequestId(account.id);
         const firstCid = session.current.nextCorrelationId();
         const orders = planMarketOrders({ trade: detail.trade, preferences: detail.preferences, market, accountId: account.id, firstRequestId: firstRq, firstCorrelationId: firstCid, head: context.head });
+        const bookUrl = config.contextUrl.replace('/pub/context', `/market-data/${market.id}/book?levels=100`);
+        const bookResponse = await fetch(bookUrl, { cache: 'no-store' });
+        if (!bookResponse.ok) throw new Error('Could not verify PERPL liquidity. No order was submitted.');
+        assertMarketLiquidity(await bookResponse.json(), orders[0], market);
         const admissions = await session.current.submitOrders(orders);
         const rejected = admissions.find(item => !item.accepted);
         if (rejected) throw new Error(rejected.code === 403 ? 'PERPL rejected this API key because it does not have trade scope.' : `PERPL rejected part of the instruction: ${rejected.error || `code ${rejected.code}`}. Check the account on PERPL before trying again.`);

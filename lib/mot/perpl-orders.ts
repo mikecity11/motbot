@@ -79,3 +79,17 @@ export function planMarketOrders(args: {
   if (preferences.tpOn) addTrigger(preferences.tp, 'tp');
   return orders;
 }
+
+/** Check a public snapshot without widening the user's execution limits. */
+export function assertMarketLiquidity(book: unknown, opening: PlannedOrder, market: PerplMarket): void {
+  if (!book || typeof book !== 'object') throw new Error('PERPL liquidity could not be verified. No order was submitted.');
+  const levels = (book as Record<string, unknown>)[opening.t === 1 ? 'ask' : 'bid'];
+  if (!Array.isArray(levels)) throw new Error('PERPL returned an invalid order book. No order was submitted.');
+  const bound = market.markPriceScaled * (1 + (opening.t === 1 ? 1 : -1) * opening.ms / 10_000);
+  let available = 0;
+  for (const level of levels) {
+    if (!level || !safePositive(level.p) || !safePositive(level.s) || !safePositive(level.o)) continue;
+    if (opening.t === 1 ? level.p <= bound : level.p >= bound) available += level.s;
+  }
+  if (available < opening.s) throw new Error(`PERPL currently has insufficient ${market.symbol} liquidity within the ${(opening.ms / 100).toFixed(2)}% slippage limit for this order. No order was submitted. Try a smaller size or wait for liquidity; MOT will not increase slippage automatically.`);
+}
