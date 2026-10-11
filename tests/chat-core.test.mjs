@@ -8,6 +8,7 @@ import {
   recentQuote,
   normalizeMarkets,
   builtInReply,
+  parsePerplAction,
   kuruBuiltInReply,
   relayBuiltInReply,
   renderTradePreview,
@@ -296,4 +297,12 @@ test("model output is validated and execution claims fail closed", () => {
     /No action was taken/,
   );
   assert.match(buildInstructions(input("hello"), []), /CANNOT submit/);
+});
+
+test('management and limit instructions cannot silently become market openings', () => {
+  assert.equal(parsePerplAction('close all my positions').action, 'close');
+  assert.equal(parsePerplAction('close my BTC position').market, 'BTC');
+  assert.equal(parsePerplAction('cancel order #123').orderId, 123);
+  assert.equal(parsePerplAction('set a limit order for btc short at $84100 with $10 at 2x leverage').limitPrice, 84100);
+  assert.equal(parsePerplAction('I might close my BTC position'), null);
 });

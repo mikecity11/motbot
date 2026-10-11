@@ -42,3 +42,10 @@ test('liquidity preflight checks the correct side and preserves slippage limits'
   assert.doesNotThrow(() => assertMarketLiquidity({ bid: [{ p: 899900, s: short.s, o: 1 }] }, short, market));
   assert.throws(() => assertMarketLiquidity({ bid: [{ p: 890000, s: 100, o: 1 }] }, short, market), /insufficient/);
 });
+
+test('limit orders retain price, GTC and calculate size and protections from entry', () => {
+  const { head, markets: [market] } = decodeTradingContext(rawContext);
+  const orders = planMarketOrders({ trade: { market: 'BTC', side: 'short', marginUSD: 10, leverage: 2, limitPrice: 84100 }, preferences: { slOn: true, sl: 50, tpOn: false, tp: 100 }, market, accountId: 639, firstRequestId: 20, firstCorrelationId: 50, head });
+  assert.equal(orders[0].p, 841000); assert.equal(orders[0].fl, 0); assert.equal(orders[0].s, 23);
+  assert.equal(orders[1].tp, 1051250);
+});

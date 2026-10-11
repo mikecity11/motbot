@@ -48,6 +48,7 @@ export type SessionState = {
   status: 'connecting' | 'authenticated' | 'closed' | 'error';
   accounts: PerplAccount[];
   positions: PerplPosition[];
+  orders?: Frame[];
   message: string;
 };
 type Frame = Record<string, unknown>;
@@ -133,6 +134,7 @@ export class PerplReadOnlySession {
   private options: SessionOptions | null;
   private accounts: PerplAccount[] = [];
   private positions: PerplPosition[] = [];
+  private orders = new Map<number, Frame>();
   private authenticated = false;
   private lastSequence: number | null = null;
   private authenticationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -140,7 +142,7 @@ export class PerplReadOnlySession {
   private freshnessTimer: ReturnType<typeof setInterval> | null = null;
   private lastMessage = Date.now();
   private ended = false;
-  private pending = new Map<number, { accountId: number; requestId: number; resolve: (value: OrderAdmission) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  private pending = new Map<number, { accountId: number; requestId: number; orderType: number; orderId?: number; resolve: (value: OrderAdmission) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private requestCounters = new Map<number, number>();
   private correlation = Math.floor(Math.random() * 1_000_000_000) + 1;
 
@@ -211,22 +213,27 @@ export class PerplReadOnlySession {
           if (position.status === 1) {
             if (index < 0) this.positions.push(position); else this.positions[index] = position;
           } else if (index >= 0) this.positions.splice(index, 1);
-          if (position.status === 1 && position.size > 0) this.resolveRequest(position.requestId, position.accountId, true, 'position', 'Open position update received from PERPL.');
+          if (position.status === 1 && position.size > 0 && [...this.pending.values()].some(item => item.requestId === position.requestId && item.accountId === position.accountId && (item.orderType === 1 || item.orderType === 2))) this.resolveRequest(position.requestId, position.accountId, true, 'position', 'Open position update received from PERPL.');
         }
         this.emit('authenticated', frame.mt === 26 ? 'Open positions loaded from PERPL.' : 'Position status updated by PERPL.');
-      } else if (frame.mt === 24 && this.authenticated) {
+      } else if ((frame.mt === 23 || frame.mt === 24) && this.authenticated) {
         if (!Array.isArray(frame.d)) throw new Error('Invalid order stream.');
+        if (frame.mt === 23) this.orders.clear();
         for (const order of frame.d) if (object(order) && positiveId(order.rq) && positiveId(order.acc)) {
+          if (positiveId(order.oid)) this.orders.set(order.oid as number, order);
+          const cancellation = [...this.pending.values()].find(item => item.orderType === 5 && item.accountId === order.acc && item.orderId === order.oid);
+          if (cancellation && order.st === 5) this.resolveRequest(cancellation.requestId, cancellation.accountId, true, 'order', `PERPL confirmed cancellation of order #${order.oid}.`);
           const filled = typeof order.fs === 'number' && order.fs > 0;
           const failed = order.st === 7 || (!filled && (order.st === 5 || order.st === 6));
-          const terminal = failed || filled || order.st === 4 || order.st === 8;
+          const terminal = failed || filled || order.st === 2 || order.st === 4 || order.st === 8 || order.st === 10;
           if (!terminal) continue;
           const reasons: Record<number, string> = { 1: 'insufficient available balance', 14: 'execution block expired', 15: 'forwarding reverted', 16: 'immediate-or-cancel completed; remaining size canceled (available liquidity or execution limits prevented a full fill)', 17: 'order below minimum size', 20: 'invalid expiry block', 32: 'request ID too low', 34: 'order forwarding not allowed', 36: 'order posting failed', 40: 'price outside allowed range', 42: 'size outside allowed range', 44: 'taker settlement failed' };
           const failures: Record<number, string> = { 1: 'insufficient collateral or fees', 2: 'insufficient collateral to increase position', 3: 'insufficient collateral to invert position', 4: 'no position to close', 7: 'reference price stale', 8: 'negative PnL collateralization limit exceeded' };
           const reason = typeof order.sr === 'number' ? reasons[order.sr] ?? `reason ${order.sr}` : 'reason unavailable';
           const failure = typeof order.fr === 'number' ? `; ${failures[order.fr] ?? `failure ${order.fr}`}` : '';
-          this.resolveRequest(order.rq, order.acc, !failed, 'order', failed ? `PERPL ${order.st === 6 ? 'expired' : order.st === 5 ? 'canceled without a fill' : 'rejected'} request #${order.rq}: ${reason}${failure}.` : `PERPL reported ${order.st === 8 ? 'a waiting protection order' : 'a fill'} for request #${order.rq}.`);
+          this.resolveRequest(order.rq, order.acc, !failed, 'order', failed ? `PERPL ${order.st === 6 ? 'expired' : order.st === 5 ? 'canceled without a fill' : 'rejected'} request #${order.rq}: ${reason}${failure}.` : `PERPL reported ${order.st === 8 ? 'a waiting protection order' : order.st === 2 ? 'an open limit order' : order.st === 10 ? 'an executed request' : 'a fill'} for request #${order.rq}.`);
         }
+        this.emit('authenticated', 'Live order state updated by PERPL.');
       } else if (frame.mt === 100 && this.authenticated) {
         if (typeof frame.sn !== 'number' || frame.sn !== this.lastSequence! + 1) throw new Error('Sequence gap');
         this.lastSequence = frame.sn;
@@ -245,6 +252,7 @@ export class PerplReadOnlySession {
   }
 
   getAccount(accountId: number) { return this.accounts.find(account => account.id === accountId) ?? null; }
+  getOrders() { return [...this.orders.values()]; }
   getPositions() { return [...this.positions]; }
   nextRequestId(accountId: number, count = 1) {
     const account = this.getAccount(accountId);
@@ -268,7 +276,7 @@ export class PerplReadOnlySession {
         if (account && account.lastForwardedRequestId >= item.requestId) resolve({ correlationId: cid, accepted: true, code: 0, error: 'PERPL forwarded the request; command acknowledgement was delayed.', evidence: 'forwarded' });
         else reject(new Error('PERPL did not acknowledge or report this order in time. Its outcome is uncertain; check PERPL before sending another instruction.'));
       }, 15000);
-      this.pending.set(cid, { accountId: order.acc, requestId: order.rq, resolve, reject, timer });
+      this.pending.set(cid, { accountId: order.acc, requestId: order.rq, orderType: Number(order.t), orderId: typeof order.oid === 'number' ? order.oid : undefined, resolve, reject, timer });
     }));
     try {
       for (const order of orders) this.socket.send(JSON.stringify(order));
@@ -287,7 +295,7 @@ export class PerplReadOnlySession {
       item.resolve({ correlationId: cid, accepted, code: accepted ? 0 : 409, error, evidence });
     }
   }
-  private emit(status: SessionState['status'], message: string) { this.options?.onState({ status, accounts: status === 'authenticated' ? [...this.accounts] : [], positions: status === 'authenticated' ? [...this.positions] : [], message }); }
+  private emit(status: SessionState['status'], message: string) { this.options?.onState({ status, accounts: status === 'authenticated' ? [...this.accounts] : [], positions: status === 'authenticated' ? [...this.positions] : [], orders: status === 'authenticated' ? this.getOrders().filter(o => [1, 2, 3, 8].includes(Number(o.st)) && !o.r) : [], message }); }
   private fail(message: string) { if (this.ended) return; this.emit('error', message); this.dispose(); }
 
   disconnect() { if (this.ended) return; this.emit('closed', 'Session disconnected. Revoke the API key on PERPL to remove its permissions.'); this.dispose(); }

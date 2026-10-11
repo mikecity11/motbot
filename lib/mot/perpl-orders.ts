@@ -1,4 +1,4 @@
-export type TradeCandidate = { market: string; side: 'long' | 'short'; marginUSD: number; leverage: number };
+export type TradeCandidate = { market: string; side: 'long' | 'short'; marginUSD: number; leverage: number; action?: 'close' | 'cancel'; all?: boolean; orderId?: number; limitPrice?: number; network?: 'mainnet' | 'testnet' };
 
 export type PerplMarket = {
   id: number;
@@ -15,7 +15,7 @@ export type ProtectionPreferences = { slOn: boolean; sl: number; tpOn: boolean; 
 
 export type PlannedOrder = {
   mt: 22; rq: number; sn: number; mkt: number; acc: number; t: number; p: number;
-  s: number; ms: number; fl: 4; lv: number; lb: number; tp?: number; tpc?: number; tr?: number;
+  s: number; ms: number; fl: 0 | 4; oid?: number; lp?: number; lv: number; lb: number; tp?: number; tpc?: number; tr?: number;
 };
 
 const safePositive = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
@@ -53,14 +53,17 @@ export function planMarketOrders(args: {
   const leverageHundredths = Math.round(trade.leverage * 100);
   const maxLeverageHundredths = Math.floor(1_000_000 / market.initialMargin);
   if (leverageHundredths > maxLeverageHundredths) throw new Error(`${market.symbol} currently allows at most ${(maxLeverageHundredths / 100).toFixed(2)}x leverage on the selected PERPL network.`);
-  const mark = market.markPriceScaled / 10 ** market.priceDecimals;
+  const mark = trade.limitPrice ?? market.markPriceScaled / 10 ** market.priceDecimals;
+  if (!Number.isFinite(mark) || mark <= 0) throw new Error('The limit price must be positive.');
+  const price = trade.limitPrice === undefined ? 0 : Math.round(trade.limitPrice * 10 ** market.priceDecimals);
+  if (trade.limitPrice !== undefined && (!safePositive(price) || Math.abs(price / 10 ** market.priceDecimals - trade.limitPrice) > 1e-9)) throw new Error('The limit price exceeds this market’s price precision.');
   const size = Math.floor((trade.marginUSD * trade.leverage / mark) * 10 ** market.sizeDecimals);
   if (!safePositive(size)) throw new Error(`This order is too small for ${market.symbol}'s current size precision.`);
   const expiry = head + Math.min(20, market.orderTtlBlocks);
   const opening: PlannedOrder = {
     mt: 22, rq: firstRequestId, sn: firstCorrelationId, mkt: market.id, acc: accountId,
-    t: trade.side === 'long' ? 1 : 2, p: 0, s: size, ms: Math.min(50, market.maxSlippageBps),
-    fl: 4, lv: leverageHundredths, lb: expiry,
+    t: trade.side === 'long' ? 1 : 2, p: price, s: size, ms: Math.min(50, market.maxSlippageBps),
+    fl: price ? 0 : 4, lv: leverageHundredths, lb: expiry,
   };
   const orders = [opening];
   const closeType = trade.side === 'long' ? 3 : 4;
@@ -68,7 +71,7 @@ export function planMarketOrders(args: {
     if (!Number.isFinite(percent) || percent <= 0) throw new Error(`The ${kind === 'sl' ? 'stop-loss' : 'take-profit'} percentage is invalid.`);
     const move = percent / 100 / trade.leverage;
     const multiplier = kind === 'sl' ? (trade.side === 'long' ? 1 - move : 1 + move) : (trade.side === 'long' ? 1 + move : 1 - move);
-    const trigger = Math.round(market.markPriceScaled * multiplier);
+    const trigger = Math.round((price || market.markPriceScaled) * multiplier);
     if (!safePositive(trigger)) throw new Error('The calculated protection trigger is invalid.');
     const isGreater = kind === 'sl' ? trade.side === 'short' : trade.side === 'long';
     orders.push({ mt: 22, rq: firstRequestId + orders.length, sn: firstCorrelationId + orders.length,
@@ -83,13 +86,13 @@ export function planMarketOrders(args: {
 /** Check a public snapshot without widening the user's execution limits. */
 export function assertMarketLiquidity(book: unknown, opening: PlannedOrder, market: PerplMarket): void {
   if (!book || typeof book !== 'object') throw new Error('PERPL liquidity could not be verified. No order was submitted.');
-  const levels = (book as Record<string, unknown>)[opening.t === 1 ? 'ask' : 'bid'];
+  const levels = (book as Record<string, unknown>)[(opening.t === 1 || opening.t === 4) ? 'ask' : 'bid'];
   if (!Array.isArray(levels)) throw new Error('PERPL returned an invalid order book. No order was submitted.');
-  const bound = market.markPriceScaled * (1 + (opening.t === 1 ? 1 : -1) * opening.ms / 10_000);
+  const bound = market.markPriceScaled * (1 + ((opening.t === 1 || opening.t === 4) ? 1 : -1) * opening.ms / 10_000);
   let available = 0;
   for (const level of levels) {
     if (!level || !safePositive(level.p) || !safePositive(level.s) || !safePositive(level.o)) continue;
-    if (opening.t === 1 ? level.p <= bound : level.p >= bound) available += level.s;
+    if ((opening.t === 1 || opening.t === 4) ? level.p <= bound : level.p >= bound) available += level.s;
   }
   if (available < opening.s) throw new Error(`PERPL currently has insufficient ${market.symbol} liquidity within the ${(opening.ms / 100).toFixed(2)}% slippage limit for this order. No order was submitted. Try a smaller size or wait for liquidity; MOT will not increase slippage automatically.`);
 }

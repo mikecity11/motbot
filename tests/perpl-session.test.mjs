@@ -204,3 +204,24 @@ for (const status of [5, 6]) test(`unfilled terminal status ${status} is not acc
   socket.receive({ mt: 24, d: [{ acc: 1, rq: 1, st: status, fs: 0, sr: 14 }] });
   assert.equal((await pending)[0].accepted, false);
 });
+
+test('an open limit order is acknowledged without claiming a position fill', async t => {
+  const { socket, session } = await fixture(t); socket.receive(snapshot);
+  const pending = session.submitOrders([{ mt: 22, sn: session.nextCorrelationId(), rq: 1, acc: 1, t: 2, p: 841000 }]);
+  socket.receive({ mt: 24, d: [{ acc: 1, rq: 1, oid: 123, mkt: 16, st: 2, fs: 0 }] });
+  const [result] = await pending; assert.equal(result.accepted, true); assert.match(result.error, /open limit order/); assert.equal(session.getPositions().length, 0);
+});
+test('cancellation reconciles against the original order ID', async t => {
+  const { socket, session } = await fixture(t); socket.receive(snapshot);
+  socket.receive({ mt: 23, d: [{ acc: 1, rq: 1, oid: 123, mkt: 16, st: 2, fs: 0 }] });
+  const pending = session.submitOrders([{ mt: 22, sn: session.nextCorrelationId(), rq: 2, acc: 1, t: 5, oid: 123 }]);
+  socket.receive({ mt: 24, d: [{ acc: 1, rq: 1, oid: 123, mkt: 16, st: 5, fs: 0 }] });
+  const [result] = await pending; assert.equal(result.accepted, true); assert.match(result.error, /confirmed cancellation/);
+});
+test('a close acknowledges its fill rather than a remaining open position', async t => {
+  const { socket, session } = await fixture(t); socket.receive(snapshot);
+  const pending = session.submitOrders([{ mt: 22, sn: session.nextCorrelationId(), rq: 3, acc: 1, t: 4, lp: 44 }]);
+  socket.receive({ mt: 27, d: [{ acc: 1, mkt: 16, pid: 44, rq: 3, sd: 2, st: 1, c: '5000000', ep: 100, s: 1, lv: 300 }] });
+  socket.receive({ mt: 24, d: [{ acc: 1, rq: 3, oid: 124, st: 4, fs: 1 }] });
+  assert.equal((await pending)[0].evidence, 'order');
+});

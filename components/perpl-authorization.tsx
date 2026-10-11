@@ -25,27 +25,59 @@ export function PerplAuthorization({ wallet, chain, network, onSessionChange }: 
       try {
         const config = PERPL_NETWORKS[network];
         if (!detail || typeof detail.id !== 'string' || !detail.trade || !detail.preferences) throw new Error('The reviewed instruction is invalid.');
+        if (detail.trade.network && detail.trade.network !== network) throw new Error('The reviewed instruction belongs to another network. Send a fresh instruction.');
         if (Number(chain) !== config.chainId || !session.current || state?.status !== 'authenticated') throw new Error(`Connect a verified PERPL ${network} API session first.`);
         const account = state.accounts.find(item => item.forwarding === true && item.frozen === false);
         if (!account) throw new Error('A verified, unfrozen PERPL account with order forwarding enabled is required.');
-        if (account.balance === null || account.lockedBalance === null) throw new Error('PERPL did not provide a verified collateral balance.');
-        const required = BigInt(Math.ceil(detail.trade.marginUSD * 1_000_000));
-        if (BigInt(account.balance) - BigInt(account.lockedBalance) < required) throw new Error(`Available ${network} collateral is below the requested opening margin.`);
+        if (!detail.trade.action) {
+          if (account.balance === null || account.lockedBalance === null) throw new Error('PERPL did not provide a verified collateral balance.');
+          const required = BigInt(Math.ceil(detail.trade.marginUSD * 1_000_000));
+          if (BigInt(account.balance) - BigInt(account.lockedBalance) < required) throw new Error(`Available ${network} collateral is below the requested opening margin.`);
+        }
         const response = await fetch(config.contextUrl, { cache: 'no-store' });
         if (!response.ok) throw new Error('Could not load PERPL’s live trading limits.');
         const context = decodeTradingContext(await response.json());
+        if (detail.trade.action) {
+          const currentSession = session.current;
+          const targets = detail.trade.action === 'close'
+            ? currentSession.getPositions().filter(p => p.accountId === account.id && (!detail.trade.market || context.markets.find(m => m.id === p.marketId)?.symbol.toUpperCase() === detail.trade.market))
+            : currentSession.getOrders().filter(o => o.acc === account.id && o.oid === detail.trade.orderId && [1, 2, 3, 8].includes(Number(o.st)) && !o.r);
+          if (!targets.length) throw new Error('No matching live position or pending order was found.');
+          if (detail.trade.action === 'close' && !detail.trade.all && targets.length !== 1) throw new Error('More than one position matches. Specify a market or explicitly request all positions.');
+          const outcomes: string[] = [];
+          for (const target of targets) {
+            const position = target as PerplPosition;
+            const raw = target as Record<string, unknown>;
+            const marketId = detail.trade.action === 'close' ? position.marketId : Number(raw.mkt);
+            const market = context.markets.find(m => m.id === marketId);
+            if (!market) throw new Error('The live market configuration is unavailable.');
+            const frame = { mt: 22, rq: currentSession.nextRequestId(account.id), sn: currentSession.nextCorrelationId(), acc: account.id, mkt: market.id,
+              t: detail.trade.action === 'cancel' ? 5 : position.side === 'long' ? 3 : 4, p: 0,
+              s: detail.trade.action === 'cancel' ? 0 : position.size, fl: detail.trade.action === 'cancel' ? 0 : 4,
+              lv: detail.trade.action === 'cancel' ? 0 : position.leverage, ms: Math.min(50, market.maxSlippageBps),
+              lb: context.head + Math.min(20, market.orderTtlBlocks),
+              ...(detail.trade.action === 'cancel' ? { oid: detail.trade.orderId } : { lp: position.positionId }) };
+            const [result] = await currentSession.submitOrders([frame]);
+            outcomes.push(result.error);
+            if (!result.accepted || result.evidence === 'forwarded') { reply(false, `${outcomes.join(' ')} Check PERPL before another instruction; remaining actions were stopped.`); return; }
+          }
+          reply(true, outcomes.join(' ') + ' Check the live PERPL position/order state for any remaining size.'); return;
+        }
         const market = context.markets.find(item => item.symbol.toUpperCase() === detail.trade.market.toUpperCase());
         if (!market) throw new Error(`${detail.trade.market} is not available on PERPL ${network}.`);
         const firstRq = session.current.nextRequestId(account.id);
         const firstCid = session.current.nextCorrelationId();
         const orders = planMarketOrders({ trade: detail.trade, preferences: detail.preferences, market, accountId: account.id, firstRequestId: firstRq, firstCorrelationId: firstCid, head: context.head });
+        if (!detail.trade.limitPrice) {
         const bookUrl = config.contextUrl.replace('/pub/context', `/market-data/${market.id}/book?levels=100`);
         const bookResponse = await fetch(bookUrl, { cache: 'no-store' });
         if (!bookResponse.ok) throw new Error('Could not verify PERPL liquidity. No order was submitted.');
         assertMarketLiquidity(await bookResponse.json(), orders[0], market);
+        }
         const admissions = await session.current.submitOrders(orders);
         const rejected = admissions.find(item => !item.accepted);
         if (rejected) throw new Error(rejected.code === 403 ? 'PERPL rejected this API key because it does not have trade scope.' : `PERPL rejected part of the instruction: ${rejected.error || `code ${rejected.code}`}. Check the account on PERPL before trying again.`);
+        if (detail.trade.limitPrice) { reply(true, admissions.map(a => a.error).join(' ') + ' A pending limit order is not proof of an open position.'); return; }
         const filled = admissions[0]?.evidence === 'position';
         const forwarded = admissions.some(item => item.evidence === 'forwarded' || item.evidence === 'order');
         reply(true, filled ? `PERPL confirmed the resulting position. The ${network} trade is open.` : forwarded ? `${network} request submitted. ${admissions.map(item => item.error).join(' ')} An open position is not yet confirmed; check PERPL ${network} Order History and Positions before sending another instruction.` : `${orders.length} ${network} order${orders.length === 1 ? '' : 's'} accepted for forwarding by PERPL. Acceptance is not proof of a fill; wait for the live position update.`);
@@ -119,6 +151,7 @@ export function PerplAuthorization({ wallet, chain, network, onSessionChange }: 
       <p>To enable forwarding, use PERPL’s One-Click Trading setting. MOT does not change this permission for you.</p>
     </>}
     {active && state.positions.length > 0 && <div className="perpl-account"><strong>Live open positions: {state.positions.length}</strong>{state.positions.map(position => <p key={position.positionId}>Market #{position.marketId} · {position.side} · {position.leverage / 100}x · position #{position.positionId}</p>)}</div>}
+    {active && !!state.orders?.length && <div className="perpl-account"><strong>Pending orders</strong>{state.orders.map(order => <p key={Number(order.oid)}>Order #{Number(order.oid)} · market #{Number(order.mkt)} · {order.st === 8 ? 'Waiting trigger' : 'Pending'} — type “cancel order #{Number(order.oid)}” to review cancellation.</p>)}</div>}
     {(working || active) && <button className="wallet-button" onClick={() => { generation.current++; session.current?.disconnect(); session.current = null; setWorking(false); setConsent(false); setState({ status: 'closed', accounts: [], positions: [], message: 'Disconnected. The API key is still valid on PERPL until you revoke it there.' }); }}>Disconnect API session</button>}
     <p className="perpl-security-note">Enter the key once per browser session—not once per trade. Credentials are not saved to browser storage or uploaded to MOT’s server. Reloading, changing wallet/network, or disconnecting clears the session. This does not revoke the key on PERPL. API keys cannot withdraw funds, but a trade-enabled key can open losing positions{network === 'mainnet' ? ' with real funds' : ''}.</p>
   </div>;

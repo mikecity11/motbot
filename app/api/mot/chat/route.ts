@@ -17,6 +17,7 @@ import {
   inputContainsPotentialCredential,
   executableTradeCandidate,
   parseExplicitOpening,
+  parsePerplAction,
   renderAiReply,
 } from "@/lib/mot/chat-core";
 import {
@@ -196,6 +197,14 @@ export async function POST(request: Request) {
     return response(relayReply, "relay_quote", 200, {
       relayCandidate: relayQuote?.candidate,
     });
+  const action = parsePerplAction(input.message);
+  if (action) {
+    if (!input.perpl.verified) return response('Connect and verify your PERPL API session first. No order was submitted.', 'preview');
+    if (!action.action && (!Number.isFinite(action.limitPrice) || action.limitPrice! <= 0 || action.marginUSD <= 0 || action.leverage <= 0 || action.marginUSD > Math.min(input.settings.maxMargin, input.settings.totalMargin) || action.leverage > input.settings.maxLeverage)) return response('This limit instruction is invalid or exceeds your saved trading limits. No order was submitted.', 'preview');
+    const description = action.action === 'close' ? `Close ${action.all ? 'all' : action.market || 'your single'} open position${action.all ? 's' : ''}` : action.action === 'cancel' ? `Cancel pending order #${action.orderId}` : `${action.market} ${action.side} limit at $${action.limitPrice} · $${action.marginUSD} margin · ${action.leverage}x`;
+    return response(`${description} on PERPL ${input.perpl.network}. Review and confirm below. A limit order may remain pending until its price is reached. No order has been submitted.`, 'preview', 200, { tradeCandidate: { ...action, network: input.perpl.network } });
+  }
+  if (/\b(limit|close|cancel|stop|conditional)\b/i.test(input.message) && /\b(order|position|trade|btc|eth|sol|mon)\b/i.test(input.message)) return response('Please specify “close my BTC position”, “close all my positions”, “cancel order #123”, or “set a limit order for BTC short at $84100 with $10 at 2x leverage”. No order was submitted.', 'preview');
   const builtIn = await builtInReply(input, getMarkets);
   if (builtIn)
     return response(builtIn, "preview", 200, {
