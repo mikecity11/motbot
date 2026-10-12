@@ -218,6 +218,8 @@ export function parseExplicitOpening(
 }
 export function parsePerplAction(message: string): import('./perpl-orders').TradeCandidate | null {
   const text = message.trim().replace(/[.!?]+$/, '');
+  if (/^(?:please )?close all (?:my )?(?:(?:existing|current|open) )?(?:positions?|trades?) (?:and|&) (?:cancel )?(?:all )?(?:my )?(?:open |pending )?orders?$/i.test(text)) return { action: 'exit', all: true, market: '', side: 'long', marginUSD: 0, leverage: 0 };
+  if (/^(?:please )?cancel all (?:my )?(?:open |pending )?orders?$/i.test(text)) return { action: 'cancel', all: true, market: '', side: 'long', marginUSD: 0, leverage: 0 };
   if (/^(?:please )?close all$/i.test(text)) return { action: 'close', all: true, market: '', side: 'long', marginUSD: 0, leverage: 0 };
   const close = text.match(/^(?:please )?close (?:all (?:of )?)?(?:my )?(?:(?:existing|current|open) )?(?:([A-Za-z0-9._-]{1,24}) )?(?:positions?|trades?)$/i);
   if (close) return { action: 'close', all: /\ball\b/i.test(text), market: close[1]?.toUpperCase() ?? '', side: 'long', marginUSD: 0, leverage: 0 };

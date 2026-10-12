@@ -1,4 +1,4 @@
-export type TradeCandidate = { market: string; side: 'long' | 'short'; marginUSD: number; leverage: number; action?: 'close' | 'cancel'; all?: boolean; orderId?: number; limitPrice?: number; network?: 'mainnet' | 'testnet' };
+export type TradeCandidate = { market: string; side: 'long' | 'short'; marginUSD: number; leverage: number; action?: 'close' | 'cancel' | 'exit'; all?: boolean; orderId?: number; limitPrice?: number; network?: 'mainnet' | 'testnet' };
 
 export type PerplMarket = {
   id: number;

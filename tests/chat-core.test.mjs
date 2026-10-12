@@ -333,3 +333,10 @@ test('open-order questions use the verified live snapshot and expose cancellatio
   assert.match(await builtInReply(i, async () => []), /cancel order #123/);
   assert.match(await builtInReply(chatInputSchema.parse({ message: 'View my open orders' }), async () => []), /verify/);
 });
+
+test('combined exits and cancel-all require explicit instructions', () => {
+  assert.equal(parsePerplAction('close all position and open orders').action, 'exit');
+  assert.equal(parsePerplAction('close all my positions and cancel all pending orders').action, 'exit');
+  assert.equal(parsePerplAction('cancel all my open orders').action, 'cancel');
+  assert.equal(parsePerplAction('should I close all positions and open orders?'), null);
+});

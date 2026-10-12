@@ -39,28 +39,38 @@ export function PerplAuthorization({ wallet, chain, network, onSessionChange }: 
         const context = decodeTradingContext(await response.json());
         if (detail.trade.action) {
           const currentSession = session.current;
-          const targets = detail.trade.action === 'close'
-            ? currentSession.getPositions().filter(p => p.accountId === account.id && (!detail.trade.market || context.markets.find(m => m.id === p.marketId)?.symbol.toUpperCase() === detail.trade.market))
-            : currentSession.getOrders().filter(o => o.acc === account.id && o.oid === detail.trade.orderId && [1, 2, 3, 8].includes(Number(o.st)) && !o.r);
-          if (!targets.length) throw new Error('No matching live position or pending order was found.');
-          if (detail.trade.action === 'close' && !detail.trade.all && targets.length !== 1) throw new Error('More than one position matches. Specify a market or explicitly request all positions.');
           const outcomes: string[] = [];
-          for (const target of targets) {
-            const position = target as PerplPosition;
-            const raw = target as Record<string, unknown>;
-            const marketId = detail.trade.action === 'close' ? position.marketId : Number(raw.mkt);
-            const market = context.markets.find(m => m.id === marketId);
-            if (!market) throw new Error('The live market configuration is unavailable.');
-            const frame = { mt: 22, rq: currentSession.nextRequestId(account.id), sn: currentSession.nextCorrelationId(), acc: account.id, mkt: market.id,
-              t: detail.trade.action === 'cancel' ? 5 : position.side === 'long' ? 3 : 4, p: 0,
-              s: detail.trade.action === 'cancel' ? 0 : position.size, fl: detail.trade.action === 'cancel' ? 0 : 4,
-              lv: detail.trade.action === 'cancel' ? 0 : position.leverage, ms: Math.min(50, market.maxSlippageBps),
-              lb: context.head + Math.min(20, market.orderTtlBlocks),
-              ...(detail.trade.action === 'cancel' ? { oid: detail.trade.orderId } : { lp: position.positionId }) };
-            const [result] = await currentSession.submitOrders([frame]);
-            outcomes.push(result.error);
-            if (!result.accepted || result.evidence === 'forwarded') { reply(false, `${outcomes.join(' ')} Check PERPL before another instruction; remaining actions were stopped.`); return; }
+          const phases: ('cancel' | 'close')[] = detail.trade.action === 'exit' ? ['cancel', 'close'] : [detail.trade.action];
+          for (const phase of phases) {
+            const targets = phase === 'close'
+              ? currentSession.getPositions().filter(p => p.accountId === account.id && (!detail.trade.market || context.markets.find(m => m.id === p.marketId)?.symbol.toUpperCase() === detail.trade.market.toUpperCase()))
+              : currentSession.getOrders().filter(o => o.acc === account.id && (detail.trade.all || o.oid === detail.trade.orderId) && [1, 2, 3, 8].includes(Number(o.st)) && !o.r);
+            if (phase === 'close' && !detail.trade.all && targets.length > 1) throw new Error('More than one position matches. Specify a market or explicitly request all positions.');
+            for (const target of targets) {
+              const position = target as PerplPosition;
+              const raw = target as Record<string, unknown>;
+              const liveAccount = currentSession.getAccount(account.id);
+              if (session.current !== currentSession || !liveAccount?.forwarding || liveAccount.frozen !== false) throw new Error('The PERPL account or session changed. Remaining actions stopped.');
+              const liveResponse = await fetch(config.contextUrl, { cache: 'no-store' });
+              if (!liveResponse.ok) throw new Error('Live market limits unavailable. Remaining actions stopped.');
+              const liveContext = decodeTradingContext(await liveResponse.json());
+              const marketId = phase === 'close' ? position.marketId : Number(raw.mkt);
+              const market = liveContext.markets.find(m => m.id === marketId);
+              if (!market) throw new Error('The live market configuration is unavailable.');
+              const currentPosition = phase === 'close' ? currentSession.getPositions().find(p => p.positionId === position.positionId && p.accountId === account.id) : undefined;
+              if (phase === 'close' && !currentPosition) continue;
+              const frame = { mt: 22, rq: currentSession.nextRequestId(account.id), sn: currentSession.nextCorrelationId(), acc: account.id, mkt: market.id,
+                t: phase === 'cancel' ? 5 : currentPosition!.side === 'long' ? 3 : 4, p: 0,
+                s: phase === 'cancel' ? 0 : currentPosition!.size, fl: phase === 'cancel' ? 0 : 4,
+                lv: phase === 'cancel' ? 0 : currentPosition!.leverage, ms: Math.min(50, market.maxSlippageBps),
+                lb: liveContext.head + Math.min(20, market.orderTtlBlocks),
+                ...(phase === 'cancel' ? { oid: Number(raw.oid) } : { lp: currentPosition!.positionId }) };
+              const [result] = await currentSession.submitOrders([frame]);
+              outcomes.push(result.error);
+              if (!result.accepted || result.evidence === 'forwarded') { reply(false, `${outcomes.join(' ')} Check PERPL before another instruction; remaining actions were stopped.`); return; }
+            }
           }
+          if (!outcomes.length) throw new Error('No matching live positions or pending orders were found.');
           reply(true, outcomes.join(' ') + ' Check the live PERPL position/order state for any remaining size.'); return;
         }
         const market = context.markets.find(item => item.symbol.toUpperCase() === detail.trade.market.toUpperCase());
