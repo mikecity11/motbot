@@ -204,7 +204,7 @@ export async function POST(request: Request) {
     const description = action.action === 'close' ? `Close ${action.all ? 'all' : action.market || 'your single'} open position${action.all ? 's' : ''}` : action.action === 'cancel' ? `Cancel pending order #${action.orderId}` : `${action.market} ${action.side} limit at $${action.limitPrice} · $${action.marginUSD} margin · ${action.leverage}x`;
     return response(`${description} on PERPL ${input.perpl.network}. Review and confirm below. A limit order may remain pending until its price is reached. No order has been submitted.`, 'preview', 200, { tradeCandidate: { ...action, network: input.perpl.network } });
   }
-  if (/\b(limit|close|cancel|stop|conditional)\b/i.test(input.message) && /\b(order|position|trade|btc|eth|sol|mon)\b/i.test(input.message)) return response('Please specify “close my BTC position”, “close all my positions”, “cancel order #123”, or “set a limit order for BTC short at $84100 with $10 at 2x leverage”. No order was submitted.', 'preview');
+  if (/\b(limit|close|cancel|stop|conditional)\b/i.test(input.message) && /\b(orders?|positions?|trades?|btc|eth|sol|mon)\b/i.test(input.message)) return response('Please specify “close my BTC position”, “close all my positions”, “cancel order #123”, or “set a limit order for BTC short at $84100 with $10 at 2x leverage”. No order was submitted.', 'preview');
   const builtIn = await builtInReply(input, getMarkets);
   if (builtIn)
     return response(builtIn, "preview", 200, {

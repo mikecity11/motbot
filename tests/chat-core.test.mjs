@@ -312,3 +312,10 @@ test('MON limit instructions accept a decimal entry without a currency symbol', 
   assert.equal(order.market, 'MON'); assert.equal(order.side, 'long'); assert.equal(order.limitPrice, 0.258);
   assert.equal(order.marginUSD, 5); assert.equal(order.leverage, 3);
 });
+
+test('close-all accepts the actual user phrases without authorising discussion', () => {
+  for (const message of ['Close all my existing position', 'close all', 'close all my current positions', 'close all my open positions']) {
+    const action = parsePerplAction(message); assert.equal(action.action, 'close'); assert.equal(action.all, true);
+  }
+  assert.equal(parsePerplAction('should I close all my positions?'), null);
+});
