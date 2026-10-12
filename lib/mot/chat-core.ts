@@ -392,13 +392,13 @@ export async function relayBuiltInReply(
   }>,
 ): Promise<string | null> {
   const text = input.message.trim();
-  if (!/\brelay\b/i.test(text) || !/\b(bridge|send|move)\b/i.test(text))
+  if (!/\b(bridge|send|move)\b/i.test(text) || !/\b(?:monad|relay)\b/i.test(text))
     return null;
   const route = text.match(
     /\b(\d+(?:\.\d+)?)\s*([a-zA-Z0-9]{2,12})\s+from\s+([a-zA-Z][a-zA-Z0-9 -]{1,30}?)\s+to\s+monad\b/i,
   );
   if (!route)
-    return "For a Relay quote, tell me the amount, token, source network and Monad destination—for example: “Bridge 2 USDC from Base to Monad using Relay.” No transaction was prepared.";
+    return "For a Relay quote, tell me the amount, token, source network and Monad destination—for example: “Bridge 2 USDC from Base to Monad.” No transaction was prepared.";
   if (!input.walletAddress)
     return "Connect your destination wallet first so Relay can calculate this bridge quote for your address. No transaction was prepared.";
   const amount = Number(route[1]);

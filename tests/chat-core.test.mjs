@@ -340,3 +340,11 @@ test('combined exits and cancel-all require explicit instructions', () => {
   assert.equal(parsePerplAction('cancel all my open orders').action, 'cancel');
   assert.equal(parsePerplAction('should I close all positions and open orders?'), null);
 });
+
+test('a bridge instruction selects Relay without requiring its name', async () => {
+  let requested;
+  const i = chatInputSchema.parse({ message: 'bridge 2 usdc from base to monad', walletAddress: '0x1111111111111111111111111111111111111111' });
+  const reply = await relayBuiltInReply(i, async v => { requested = v; return { amountIn: 2, amountOut: 1.99, minimumOut: 1.98, inputSymbol: 'USDC', outputSymbol: 'USDC', originChain: 'Base', destinationChain: 'Monad', impactPercent: 0.5, estimatedSeconds: 10 }; });
+  assert.equal(requested.tokenSymbol, 'USDC'); assert.equal(requested.originChain, 'base'); assert.equal(requested.amount, 2);
+  assert.match(reply, /Relay bridge quote/); assert.match(reply, /not a submitted transaction/);
+});
