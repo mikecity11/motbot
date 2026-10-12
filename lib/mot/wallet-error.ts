@@ -37,3 +37,12 @@ export function walletSubmissionError(error: unknown) {
     ? `The wallet could not submit the swap: ${safeDetail}`
     : "The wallet could not submit the swap. Make sure Monad mainnet is selected, then request a fresh quote.";
 }
+
+export function relaySubmissionError(error: unknown, stage: string, hashes: string[]) {
+  const raw = errorText(error);
+  const detail = raw.replace(/https?:\/\/\S+/g, '').replace(/0x[a-fA-F0-9]{64,}/g, '[hidden]').replace(/\s+/g, ' ').slice(0, 220).trim();
+  const code = errorCode(error);
+  const reason = code === 4001 || code === 'ACTION_REJECTED' || /user rejected|user denied|declined/i.test(raw)
+    ? 'Wallet confirmation was declined.' : detail || 'The wallet or RPC did not return a usable response.';
+  return `Relay bridge stopped during ${stage}: ${reason} ${hashes.length ? `Already submitted transaction hashes: ${hashes.join(', ')}. Their outcome must be checked on the source network before retrying.` : 'No transaction hash was returned to MOT. Check source-network transaction history before retrying.'}`;
+}

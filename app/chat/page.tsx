@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select";
 import type { PerplNetwork, PerplPosition } from "@/lib/mot/perpl-session";
 import { useMotWallet } from "@/components/dynamic-wallet-provider";
-import { walletSubmissionError } from "@/lib/mot/wallet-error";
+import { walletSubmissionError, relaySubmissionError } from "@/lib/mot/wallet-error";
 import { createPublicClient, http } from "viem";
 type TradeCandidate = {
   market: string;
@@ -986,6 +986,8 @@ export default function Home() {
         item.id === message.id ? { ...item, submission: "submitting" } : item,
       ),
     );
+    let stage = 'refreshing the Relay quote';
+    const hashes: string[] = [];
     try {
       const quoteResponse = await fetch("/api/relay/quote", {
         method: "POST",
@@ -1013,8 +1015,9 @@ export default function Home() {
         chain,
         transport: http(candidate.rpcUrl),
       });
-      const hashes: string[] = [];
+
       for (const transaction of candidate.transactions) {
+        stage = `wallet network switch or ${transaction.step} signing on ${candidate.originChainName}`;
         const hash = await submitWalletTransaction(
           candidate.originChainId,
           transaction.to,
@@ -1023,6 +1026,8 @@ export default function Home() {
           candidate,
         );
         hashes.push(hash);
+        stage = `waiting for the ${transaction.step} receipt on ${candidate.originChainName}`;
+        setMessages(all => all.map(item => item.id === message.id ? { ...item, text: `${item.text}\n\nRelay ${transaction.step} transaction submitted on ${candidate.originChainName}: ${candidate.explorerUrl ? `${candidate.explorerUrl.replace(/\/$/, '')}/tx/${hash}` : hash}. Waiting for its receipt.` } : item));
         const receipt = await client.waitForTransactionReceipt({
           hash,
           timeout: 120_000,
@@ -1046,14 +1051,13 @@ export default function Home() {
         ),
       );
     } catch (error: any) {
-      const declined =
-        error?.code === 4001 || error?.code === "ACTION_REJECTED";
+
       setMessages((all) =>
         all.map((item) =>
           item.id === message.id
             ? {
                 ...item,
-                text: `${item.text}\n\n${declined ? "Wallet confirmation was declined." : "Relay bridge was not fully submitted. Check the source-network balance and request a fresh quote before retrying."}`,
+                text: `${item.text}\n\n${relaySubmissionError(error, stage, hashes)}`,
                 submission: "failed",
               }
             : item,

@@ -51,13 +51,20 @@ const monadMainnet: EvmNetwork = {
   blockExplorerUrls: ["https://monadscan.com"],
 };
 
+const baseMainnet: EvmNetwork = {
+  chainId: 8453, networkId: 8453, name: 'Base', vanityName: 'Base', iconUrls: [],
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'],
+};
+
 type DashboardEvmNetwork = Omit<EvmNetwork, "chainId"> & {
   chainId: number | string;
 };
 
 const includeMonadMainnet = (networks: DashboardEvmNetwork[]) => [
-  ...networks.filter((network) => Number(network.chainId) !== 143),
+  ...networks.filter((network) => ![143, 8453].includes(Number(network.chainId))),
   monadMainnet,
+  baseMainnet,
 ];
 
 function DynamicWalletBridge({ children }: { children: ReactNode }) {
@@ -73,7 +80,10 @@ function DynamicWalletBridge({ children }: { children: ReactNode }) {
       const client: any = await (
         primaryWallet.connector as any
       ).getWalletClient();
+      const activeChain = await client.getChainId();
+      if (activeChain !== request.chainId) throw Error(`Wallet network switch did not complete. Expected chain ${request.chainId}, received ${activeChain}.`);
       const hash = await client.sendTransaction({
+        chain: { id: request.chainId },
         account: primaryWallet.address as `0x${string}`,
         to: request.to,
         data: request.data,
