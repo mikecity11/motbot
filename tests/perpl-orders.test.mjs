@@ -49,3 +49,8 @@ test('limit orders retain price, GTC and calculate size and protections from ent
   assert.equal(orders[0].p, 841000); assert.equal(orders[0].fl, 0); assert.equal(orders[0].s, 23);
   assert.equal(orders[1].tp, 1051250);
 });
+
+test('live markets with blank symbols use their supplied asset units', () => {
+  const raw = structuredClone(rawContext); raw.markets[0].symbol = ''; raw.markets[0].size_units = 'BTC';
+  assert.equal(decodeTradingContext(raw).markets[0].symbol, 'BTC');
+});

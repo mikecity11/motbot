@@ -28,7 +28,7 @@ export function decodeTradingContext(value: unknown): { head: number; markets: P
   const markets = raw.markets.map((market: any): PerplMarket | null => {
     const config = market?.config;
     const decoded = {
-      id: market?.id, symbol: market?.symbol, orderTtlBlocks: market?.order_ttl_blocks,
+      id: market?.id, symbol: [market?.symbol, market?.name, market?.size_units].find(value => typeof value === 'string' && /^[A-Za-z0-9._-]{1,24}$/.test(value.trim()))?.trim(), orderTtlBlocks: market?.order_ttl_blocks,
       maxSlippageBps: market?.order_max_market_slippage_bps,
       priceDecimals: config?.price_decimals, sizeDecimals: config?.size_decimals,
       initialMargin: config?.initial_margin, markPriceScaled: market?.state?.mrk,

@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { decodeTradingContext } from "@/lib/mot/perpl-orders";
+import { PERPL_NETWORKS } from "@/lib/mot/perpl-session";
 import { getMarkets } from "@/lib/mot/markets";
 import {
   getKuruMonUsdc,
@@ -197,11 +199,25 @@ export async function POST(request: Request) {
     return response(relayReply, "relay_quote", 200, {
       relayCandidate: relayQuote?.candidate,
     });
+  const missingSide = input.message.trim().match(/^(?:set|place|open) (?:a )?limit order (?:for )?([A-Za-z0-9._-]{1,24}) at \$?([\d,]+(?:\.\d+)?) (?:with|using) \$(\d+(?:\.\d+)?) at (\d+(?:\.\d+)?)x(?: leverage)?[.!?]?$/i);
+  if (missingSide) return response(`Do you want a long or short ${missingSide[1].toUpperCase()} limit order? Please resend with the direction, for example: “set a limit order for ${missingSide[1].toUpperCase()} long at ${missingSide[2]} with $${missingSide[3]} at ${missingSide[4]}x leverage”. No order was submitted.`, 'preview');
   const action = parsePerplAction(input.message);
   if (action) {
     if (!input.perpl.verified) return response('Connect and verify your PERPL API session first. No order was submitted.', 'preview');
-    if (!action.action && (!Number.isFinite(action.limitPrice) || action.limitPrice! <= 0 || action.marginUSD <= 0 || action.leverage <= 0 || action.marginUSD > Math.min(input.settings.maxMargin, input.settings.totalMargin) || action.leverage > input.settings.maxLeverage)) return response('This limit instruction is invalid or exceeds your saved trading limits. No order was submitted.', 'preview');
-    const description = action.action === 'close' ? `Close ${action.all ? 'all' : action.market || 'your single'} open position${action.all ? 's' : ''}` : action.action === 'cancel' ? `Cancel pending order #${action.orderId}` : `${action.market} ${action.side} limit at $${action.limitPrice} · $${action.marginUSD} margin · ${action.leverage}x`;
+    if (!action.action && ((action.limitPrice !== undefined && (!Number.isFinite(action.limitPrice) || action.limitPrice <= 0)) || action.marginUSD <= 0 || action.leverage <= 0 || action.marginUSD > Math.min(input.settings.maxMargin, input.settings.totalMargin) || action.leverage > input.settings.maxLeverage)) return response('This limit instruction is invalid or exceeds your saved trading limits. No order was submitted.', 'preview');
+    if (action.market) {
+      const aliases: Record<string, string> = { BITCOIN: 'BTC', ETHEREUM: 'ETH', SOLANA: 'SOL', MONAD: 'MON' };
+      const symbol = aliases[action.market] ?? action.market;
+      try {
+        const marketResponse = await fetch(PERPL_NETWORKS[input.perpl.network].contextUrl, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+        if (!marketResponse.ok) throw new Error('Unavailable');
+        const context = decodeTradingContext(await marketResponse.json());
+        const market = context.markets.find(m => m.symbol.toUpperCase() === symbol);
+        if (!market) return response(`${symbol} is not an available PERPL ${input.perpl.network} market. Available markets: ${context.markets.map(m => m.symbol).join(', ')}. No order was submitted.`, 'preview');
+        action.market = market.symbol;
+      } catch { return response('PERPL’s live market list could not be verified. Please try again when market data is available. No order was submitted.', 'preview'); }
+    }
+    const description = action.action === 'close' ? `Close ${action.all ? 'all' : action.market || 'your single'} open position${action.all ? 's' : ''}` : action.action === 'cancel' ? `Cancel pending order #${action.orderId}` : `${action.market} ${action.side} ${action.limitPrice === undefined ? 'market order' : `limit at $${action.limitPrice}`} · $${action.marginUSD} margin · ${action.leverage}x`;
     return response(`${description} on PERPL ${input.perpl.network}. Review and confirm below. A limit order may remain pending until its price is reached. No order has been submitted.`, 'preview', 200, { tradeCandidate: { ...action, network: input.perpl.network } });
   }
   if (/\b(limit|close|cancel|stop|conditional)\b/i.test(input.message) && /\b(orders?|positions?|trades?|btc|eth|sol|mon)\b/i.test(input.message)) return response('Please specify “close my BTC position”, “close all my positions”, “cancel order #123”, or “set a limit order for BTC short at $84100 with $10 at 2x leverage”. No order was submitted.', 'preview');

@@ -85,7 +85,7 @@ export const aiResponseSchema = z.object({
   trade: z
     .object({
       market: z
-        .enum(["BTC", "ETH", "SOL", "MON", "HYPE", "ZEC", "LIT", "PUMP"])
+        .string().regex(/^[A-Za-z0-9._-]{1,24}$/)
         .nullable(),
       side: z.enum(["long", "short"]).nullable(),
       marginUSD: z.number().finite().positive().max(100000).nullable(),
@@ -218,11 +218,13 @@ export function parseExplicitOpening(
 export function parsePerplAction(message: string): import('./perpl-orders').TradeCandidate | null {
   const text = message.trim().replace(/[.!?]+$/, '');
   if (/^(?:please )?close all$/i.test(text)) return { action: 'close', all: true, market: '', side: 'long', marginUSD: 0, leverage: 0 };
-  const close = text.match(/^(?:please )?close (?:all (?:of )?)?(?:my )?(?:(?:existing|current|open) )?(?:(BTC|ETH|SOL|MON|HYPE|ZEC|LIT|PUMP) )?(?:positions?|trades?)$/i);
+  const close = text.match(/^(?:please )?close (?:all (?:of )?)?(?:my )?(?:(?:existing|current|open) )?(?:([A-Za-z0-9._-]{1,24}) )?(?:positions?|trades?)$/i);
   if (close) return { action: 'close', all: /\ball\b/i.test(text), market: close[1]?.toUpperCase() ?? '', side: 'long', marginUSD: 0, leverage: 0 };
   const cancel = text.match(/^(?:please )?cancel (?:limit )?order #?(\d+)$/i);
   if (cancel && Number.isSafeInteger(Number(cancel[1]))) return { action: 'cancel', orderId: Number(cancel[1]), market: '', side: 'long', marginUSD: 0, leverage: 0 };
-  const limit = text.match(/^(?:set|place|open) (?:a )?limit order (?:for )?(BTC|ETH|SOL|MON|HYPE|ZEC|LIT|PUMP) (short|long) at \$?([\d,]+(?:\.\d+)?) (?:with|using) \$(\d+(?:\.\d+)?) at (\d+(?:\.\d+)?)x(?: leverage)?$/i);
+  const opening = text.match(/^(?:please )?(?:open (?:a )?)?(short|long) ([A-Za-z0-9._-]{1,24}) (?:with|using) \$(\d+(?:\.\d+)?) (?:at|with) (\d+(?:\.\d+)?)\s*x(?: leverage)?$/i);
+  if (opening) return { market: opening[2].toUpperCase(), side: opening[1].toLowerCase() as 'long' | 'short', marginUSD: Number(opening[3]), leverage: Number(opening[4]) };
+  const limit = text.match(/^(?:set|place|open) (?:a )?limit order (?:for )?([A-Za-z0-9._-]{1,24}) (short|long) at \$?([\d,]+(?:\.\d+)?) (?:with|using) \$(\d+(?:\.\d+)?) at (\d+(?:\.\d+)?)x(?: leverage)?$/i);
   if (limit) return { market: limit[1].toUpperCase(), side: limit[2].toLowerCase() as 'long' | 'short', limitPrice: Number(limit[3].replace(/,/g, '')), marginUSD: Number(limit[4]), leverage: Number(limit[5]) };
   return null;
 }

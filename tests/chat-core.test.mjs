@@ -319,3 +319,10 @@ test('close-all accepts the actual user phrases without authorising discussion',
   }
   assert.equal(parsePerplAction('should I close all my positions?'), null);
 });
+
+test('PERPL parsing is not restricted to a fixed market list', () => {
+  assert.equal(parsePerplAction('set a limit order for DOGE short at 0.12 with $5 at 3x leverage').market, 'DOGE');
+  assert.equal(parsePerplAction('long XRP with $5 at 2x').market, 'XRP');
+  assert.equal(parsePerplAction('close my DOGE position').market, 'DOGE');
+  assert.equal(parsePerplAction('set a limit order for BTC at 83500 with $10 at 2x leverage'), null);
+});
