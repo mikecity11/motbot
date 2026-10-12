@@ -5,7 +5,7 @@ import { assertMarketLiquidity, decodeTradingContext, planMarketOrders, type Pro
 
 type SubmitDetail = { id: string; trade: TradeCandidate; preferences: ProtectionPreferences };
 
-export function PerplAuthorization({ wallet, chain, network, onSessionChange }: { wallet: string; chain: string; network: PerplNetwork; onSessionChange?: (snapshot: { verified: boolean; network: PerplNetwork; positions: PerplPosition[] }) => void }) {
+export function PerplAuthorization({ wallet, chain, network, onSessionChange }: { wallet: string; chain: string; network: PerplNetwork; onSessionChange?: (snapshot: { verified: boolean; network: PerplNetwork; positions: PerplPosition[]; orders?: { orderId: number; marketId: number; type: number; status: number }[] }) => void }) {
   const tokenInput = useRef<HTMLInputElement>(null);
   const secretInput = useRef<HTMLInputElement>(null);
   const session = useRef<PerplReadOnlySession | null>(null);
@@ -15,7 +15,7 @@ export function PerplAuthorization({ wallet, chain, network, onSessionChange }: 
   const [working, setWorking] = useState(false);
 
   useEffect(() => {
-    onSessionChange?.({ verified: state?.status === 'authenticated', network, positions: state?.status === 'authenticated' ? state.positions : [] });
+    onSessionChange?.({ verified: state?.status === 'authenticated', network, positions: state?.status === 'authenticated' ? state.positions : [], orders: state?.status === 'authenticated' ? (state.orders ?? []).slice(0, 100).map(o => ({ orderId: Number(o.oid), marketId: Number(o.mkt), type: Number(o.t), status: Number(o.st) })).filter(o => Number.isSafeInteger(o.orderId) && o.orderId > 0 && Number.isSafeInteger(o.marketId) && o.marketId > 0 && Number.isInteger(o.type) && Number.isInteger(o.status)) : [] });
   }, [state, network, onSessionChange]);
 
   useEffect(() => {

@@ -222,6 +222,7 @@ export default function Home() {
     verified: boolean;
     network: PerplNetwork;
     positions: PerplPosition[];
+    orders?: { orderId: number; marketId: number; type: number; status: number }[];
   }>({ verified: false, network: "testnet", positions: [] });
   const end = useRef<HTMLDivElement>(null);
   const walletMenuRef = useRef<HTMLDivElement>(null);
@@ -667,6 +668,7 @@ export default function Home() {
           perpl: {
             verified: perpl.verified,
             network: perpl.network,
+            orders: perpl.orders ?? [],
             positions: perpl.positions.map(
               ({
                 marketId,

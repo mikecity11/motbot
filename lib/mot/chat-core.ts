@@ -35,6 +35,7 @@ export const chatInputSchema = z
       .object({
         verified: z.boolean().default(false),
         network: z.enum(["testnet", "mainnet"]).default("testnet"),
+        orders: z.array(z.object({ orderId: z.number().int().positive().safe(), marketId: z.number().int().positive(), type: z.number().int().min(1).max(20), status: z.number().int().min(0).max(10) })).max(100).default([]),
         positions: z
           .array(
             z.object({
@@ -243,6 +244,13 @@ export async function builtInReply(
         : /\b(mon|monad)\b/.test(text)
           ? "MON"
           : null;
+  if (/\b(view|show|list|check|see)\b/.test(text) && /\borders?\b/.test(text) && !/\b(close|cancel|place|set)\b/.test(text)) {
+    if (!input.perpl.verified) return 'Connect and verify your PERPL API session first to view open orders.';
+    const orders = input.perpl.orders.filter(o => [1, 2, 3, 8].includes(o.status));
+    if (!orders.length) return `Your verified PERPL ${input.perpl.network} session reports no pending orders in its latest snapshot.`;
+    const labels: Record<number, string> = { 1: 'Long opening', 2: 'Short opening', 3: 'Long close', 4: 'Short close' };
+    return `Pending PERPL ${input.perpl.network} orders (${orders.length}):\n${orders.map(o => `• Order #${o.orderId} · market #${o.marketId} · ${labels[o.type] ?? 'Order'} · ${o.status === 8 ? 'Waiting trigger' : o.status === 3 ? 'Partially filled' : 'Pending'}`).join('\n')}\nTo review cancellation, type “cancel order #${orders[0].orderId}”. Pending orders are not proof of an open position. This is the latest snapshot received by your browser.`;
+  }
   if (/\b(alert|notify|remind)\b/.test(text))
     return "Price alerts and email delivery are not active yet. No alert has been scheduled. Choose delivery preferences in Trading settings.";
   if (

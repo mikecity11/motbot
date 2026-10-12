@@ -326,3 +326,10 @@ test('PERPL parsing is not restricted to a fixed market list', () => {
   assert.equal(parsePerplAction('close my DOGE position').market, 'DOGE');
   assert.equal(parsePerplAction('set a limit order for BTC at 83500 with $10 at 2x leverage'), null);
 });
+
+test('open-order questions use the verified live snapshot and expose cancellation IDs', async () => {
+  const i = chatInputSchema.parse({ message: 'View my open orders', perpl: { verified: true, network: 'testnet', orders: [{ orderId: 123, marketId: 16, type: 1, status: 2 }] } });
+  assert.match(await builtInReply(i, async () => []), /Order #123/);
+  assert.match(await builtInReply(i, async () => []), /cancel order #123/);
+  assert.match(await builtInReply(chatInputSchema.parse({ message: 'View my open orders' }), async () => []), /verify/);
+});
