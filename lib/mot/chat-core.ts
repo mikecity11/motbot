@@ -221,7 +221,7 @@ export function parsePerplAction(message: string): import('./perpl-orders').Trad
   if (close) return { action: 'close', all: /\ball\b/i.test(text), market: close[1]?.toUpperCase() ?? '', side: 'long', marginUSD: 0, leverage: 0 };
   const cancel = text.match(/^(?:please )?cancel (?:limit )?order #?(\d+)$/i);
   if (cancel && Number.isSafeInteger(Number(cancel[1]))) return { action: 'cancel', orderId: Number(cancel[1]), market: '', side: 'long', marginUSD: 0, leverage: 0 };
-  const limit = text.match(/^(?:set|place|open) (?:a )?limit order (?:for )?(BTC|ETH|SOL|MON|HYPE|ZEC|LIT|PUMP) (short|long) at \$([\d,]+(?:\.\d+)?) (?:with|using) \$(\d+(?:\.\d+)?) at (\d+(?:\.\d+)?)x(?: leverage)?$/i);
+  const limit = text.match(/^(?:set|place|open) (?:a )?limit order (?:for )?(BTC|ETH|SOL|MON|HYPE|ZEC|LIT|PUMP) (short|long) at \$?([\d,]+(?:\.\d+)?) (?:with|using) \$(\d+(?:\.\d+)?) at (\d+(?:\.\d+)?)x(?: leverage)?$/i);
   if (limit) return { market: limit[1].toUpperCase(), side: limit[2].toLowerCase() as 'long' | 'short', limitPrice: Number(limit[3].replace(/,/g, '')), marginUSD: Number(limit[4]), leverage: Number(limit[5]) };
   return null;
 }

@@ -306,3 +306,9 @@ test('management and limit instructions cannot silently become market openings',
   assert.equal(parsePerplAction('set a limit order for btc short at $84100 with $10 at 2x leverage').limitPrice, 84100);
   assert.equal(parsePerplAction('I might close my BTC position'), null);
 });
+
+test('MON limit instructions accept a decimal entry without a currency symbol', () => {
+  const order = parsePerplAction('set a limit order for MON long at 0.258 with $5 at 3x leverage');
+  assert.equal(order.market, 'MON'); assert.equal(order.side, 'long'); assert.equal(order.limitPrice, 0.258);
+  assert.equal(order.marginUSD, 5); assert.equal(order.leverage, 3);
+});
